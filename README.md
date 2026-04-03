@@ -7,11 +7,11 @@
 ## Features
 
 ### Core Capabilities
-- **End-to-End Encryption** - Assets encrypted on client before upload (AES-256)
-- **Zero-Knowledge Architecture** - Server stores only encrypted blobs, never plaintext
+- **Shard Storage** - Encrypted asset shards with no asset mapping
 - **Cryptographic Permissions** - Grant/revoke access using Ed25519 signatures
-- **Audit Logging** - Complete access trail for compliance and security
-- **User Accounts** - Secure registration and authentication with JWT
+- **Dynamic Process Lifecycle** - Vault processes created on-demand, timeout after inactivity
+- **Audit Logging** - Complete access trail for compliance (stored in CouchDB)
+- **Zero-Knowledge** - Vault stores only encrypted shards, no asset-to-shard mapping
 
 ### Security Guarantees
 ✅ Client-side encryption before transmission  
@@ -43,12 +43,20 @@ end
 
 Then in your Elixir code:
 ```elixir
-# Call Erlang modules directly
-{:ok, user} = vault_accounts:register(email, password, public_key)
-{:ok, asset} = vault_assets:upload(user_id, encrypted_blob, filename)
+# Get or create a vault instance
+{:ok, vault_pid} = vault_mgr:get_or_create_vault(<<"vault_123">>, %{owner_id: <<"user_456">>})
+
+# Store encrypted shard
+{:ok, shard_id} = vault:store_shard(vault_pid, <<"shard_a1">>, encrypted_blob)
+
+# Retrieve shard
+{:ok, blob} = vault:get_shard(vault_pid, <<"shard_a1">>)
+
+# List shards
+{:ok, shard_ids} = vault:list_shards(vault_pid)
 ```
 
-**Standalone Development:**
+**Development:**
 
 ```bash
 # Clone the repository
@@ -96,43 +104,36 @@ iex -S mix
 
 ### Erlang Modules
 
-**Vault is a single gen_server process** that manages vault operations. The core module (implemented in Erlang) is:
+**Vault is a dynamic OTP system** with process-per-vault architecture:
 
 ```erlang
-% Vault gen_server for managing shards and access control
-vault:start_link(VaultId, OwnerId) -> {ok, Pid}
-vault:store_shard(VaultId, ShardId, EncryptedBlob) -> {ok, ShardId}
-vault:get_shard(VaultId, ShardId) -> {ok, EncryptedBlob}
-vault:list_shard_ids(VaultId) -> {ok, [ShardIds]}
-vault:grant_shard_access(VaultId, UserId, ShardIds) -> {ok, granted}
-vault:revoke_shard_access(VaultId, UserId, ShardIds) -> {ok, revoked}
+% Vault manager - get or create vault process
+vault_mgr:get_or_create_vault(VaultId, Options) -> {ok, Pid}
 
-% Supporting modules
-vault_crypto:sign(Data, PrivateKey) -> {ok, Signature}
-vault_crypto:verify(Data, Signature, PublicKey) -> {ok, verified} | {error, invalid}
-vault_audit:log_access(VaultId, UserId, ShardId, Action) -> ok
+% Vault gen_server - individual vault instance
+vault:store_shard(Pid, ShardId, EncryptedBlob) -> {ok, ShardId}
+vault:get_shard(Pid, ShardId) -> {ok, EncryptedBlob}
+vault:list_shards(Pid) -> {ok, [ShardIds]}
+vault:grant_shard_access(Pid, UserId, ShardIds) -> {ok, granted}
+vault:revoke_shard_access(Pid, UserId, ShardIds) -> {ok, revoked}
 ```
 
-**Key Design**: Vault stores **only shard IDs and encrypted blobs**. No asset mappings. Asset-to-shard reconstruction mappings are stored separately in Mozaik.
+**Supporting Services:**
+- `vault_db.erl` - CouchDB interface (store/retrieve vault state)
+- `vault_crypto.erl` - Cryptographic operations (Ed25519, AES-256)
+- `vault_audit.erl` - Audit logging (access trail to CouchDB)
 
-```erlang
-% What Vault stores:
-{
-  vault_id => "vault_12345",
-  shards => {
-    shard_a1 => {encrypted_blob, hash, permissions},
-    shard_b2 => {encrypted_blob, hash, permissions},
-    shard_c3 => {encrypted_blob, hash, permissions}
-  }
-}
-
-% What Mozaik stores (separate system):
-{
-  asset_id => "image_001",
-  shard_ids => [shard_a1, shard_b2, shard_c3],
-  reconstruction_algorithm => {...}
-}
+**Vault Lifecycle:**
 ```
+1. Mozaik calls: vault_mgr:get_or_create_vault(<<"vault_123">>, Options)
+2. vault_mgr creates new vault:erl process if not exists
+3. Vault process loads state from CouchDB (if exists)
+4. Vault handles shard operations (store, get, grant, revoke)
+5. On 5-minute inactivity timeout: save state to CouchDB, process dies
+6. Next operation: repeat from step 2
+```
+
+**Key Design**: Vault stores **only encrypted shards**, NO asset-to-shard mapping. Mapping stored separately in Mozaik.
 
 ### Calling from Elixir (Mozaik)
 
@@ -140,10 +141,13 @@ vault_audit:log_access(VaultId, UserId, ShardId, Action) -> ok
 # In Mozaik's Elixir code
 defmodule Mozaik.VaultClient do
   def upload_shard(vault_id, shard_id, encrypted_data) do
-    # Call Erlang gen_server directly
-    case vault:store_shard(vault_id, shard_id, encrypted_data) do
+    # Get or create vault process
+    {:ok, pid} = vault_mgr:get_or_create_vault(vault_id, %{owner_id: current_user_id()})
+    
+    # Store shard in vault
+    case vault:store_shard(pid, shard_id, encrypted_data) do
       {:ok, shard_id} ->
-        # Store in Mozaik: which asset this shard belongs to
+        # Store in Mozaik: asset_id -> [shard_ids] mapping
         {:ok, shard_id}
       {:error, reason} ->
         {:error, reason}
