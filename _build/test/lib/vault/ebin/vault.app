@@ -1,0 +1,10 @@
+{application,vault,
+             [{config_mtime,1775204664},
+              {optional_applications,[]},
+              {applications,[kernel,stdlib,elixir,logger,couchbeam]},
+              {description,"vault"},
+              {modules,[vault,vault_app,vault_audit,vault_crypto,vault_db,
+                        vault_mgr,vault_sup]},
+              {registered,[]},
+              {vsn,"0.1.0"},
+              {mod,{vault_app,[]}}]}.
