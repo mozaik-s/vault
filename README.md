@@ -114,8 +114,8 @@ vault_mgr:get_or_create_vault(VaultId, Options) -> {ok, Pid}
 vault:store_shard(Pid, ShardId, EncryptedBlob) -> {ok, ShardId}
 vault:get_shard(Pid, ShardId) -> {ok, EncryptedBlob}
 vault:list_shards(Pid) -> {ok, [ShardIds]}
-vault:grant_shard_access(Pid, UserId, ShardIds) -> {ok, granted}
-vault:revoke_shard_access(Pid, UserId, ShardIds) -> {ok, revoked}
+vault:grant_access(Pid, UserId, AccessLevel) -> {ok, granted}
+vault:revoke_access(Pid, UserId) -> {ok, revoked}
 ```
 
 **Supporting Services:**
@@ -237,16 +237,20 @@ ok = vault:delete_shard(VaultId, ShardId).
 
 ### Permissions
 
+**Permissions are vault-level** - users either have access to a vault or no access. This aligns with the MVP model: "Only you control access" means you decide who sees your vault.
+
 ```erlang
-% Grant user access to specific shards
-{ok, granted} = vault:grant_shard_access(VaultId, UserId, [ShardId1, ShardId2]).
+% Grant user vault-level access
+{ok, granted} = vault:grant_access(VaultPid, UserId, view).
 
-% Revoke user access to shards
-{ok, revoked} = vault:revoke_shard_access(VaultId, UserId, [ShardId1]).
+% Revoke user's vault access
+{ok, revoked} = vault:revoke_access(VaultPid, UserId).
 
-% Verify if user has access to shard
-true = vault:has_access(UserId, ShardId).
+% List all permissions for vault
+{ok, PermissionsMap} = vault:get_vault_permissions(VaultPid).
 ```
+
+**Access Levels**: `view`, `upload`, `admin` (exact atoms to be finalized in Phase 2)
 
 ### Audit
 

@@ -27,7 +27,6 @@ defmodule Vault.MixProject do
     [
       # CouchDB client for Erlang
       {:couchbeam, "~> 1.4"}
-      
       # TODO: Use {:enacl, "~> 1.2"} for cryptography after fixing Erlang compatibility
     ]
   end

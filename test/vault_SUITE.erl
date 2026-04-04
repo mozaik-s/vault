@@ -91,12 +91,12 @@ test_list_shards(_Config) ->
 test_grant_shard_access(_Config) ->
   {ok, VaultPid} = vault:start_link(<<"vault_4">>, <<"user_4">>),
   vault:store_shard(VaultPid, <<"shard_c">>, <<"data_c">>),
-  {ok, granted} = vault:grant_shard_access(VaultPid, <<"user_5">>, [<<"shard_c">>]),
+  {ok, granted} = vault:grant_access(VaultPid, <<"user_5">>, view),
   ok.
 
 test_revoke_shard_access(_Config) ->
   {ok, VaultPid} = vault:start_link(<<"vault_5">>, <<"user_5">>),
   vault:store_shard(VaultPid, <<"shard_d">>, <<"data_d">>),
-  vault:grant_shard_access(VaultPid, <<"user_6">>, [<<"shard_d">>]),
-  {ok, revoked} = vault:revoke_shard_access(VaultPid, <<"user_6">>, [<<"shard_d">>]),
+  vault:grant_access(VaultPid, <<"user_6">>, upload),
+  {ok, revoked} = vault:revoke_access(VaultPid, <<"user_6">>),
   ok.

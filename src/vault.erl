@@ -10,12 +10,12 @@
 %% API
 -export([
   start_link/2,
-  grant_shard_access/3,
-  revoke_shard_access/3,
+  grant_access/3,
+  revoke_access/2,
   store_shard/3,
   get_shard/2,
   list_shards/1,
-  get_permissions/1
+  get_vault_permissions/1
 ]).
 
 %% gen_server callbacks
@@ -49,15 +49,15 @@
 start_link(VaultId, OwnerId) ->
   gen_server:start_link(?MODULE, {VaultId, OwnerId}, []).
 
-%% @doc Grant a user access to specific shards
--spec grant_shard_access(pid(), binary(), list()) -> {ok, granted} | {error, term()}.
-grant_shard_access(VaultPid, UserId, ShardIds) ->
-  gen_server:call(VaultPid, {grant_shard_access, UserId, ShardIds}).
+%% @doc Grant user access to entire vault
+-spec grant_access(pid(), binary(), atom()) -> {ok, granted} | {error, term()}.
+grant_access(VaultPid, UserId, AccessLevel) ->
+  gen_server:call(VaultPid, {grant_access, UserId, AccessLevel}).
 
-%% @doc Revoke a user's access to shards
--spec revoke_shard_access(pid(), binary(), list()) -> {ok, revoked} | {error, term()}.
-revoke_shard_access(VaultPid, UserId, ShardIds) ->
-  gen_server:call(VaultPid, {revoke_shard_access, UserId, ShardIds}).
+%% @doc Revoke user's access to entire vault
+-spec revoke_access(pid(), binary()) -> {ok, revoked} | {error, term()}.
+revoke_access(VaultPid, UserId) ->
+  gen_server:call(VaultPid, {revoke_access, UserId}).
 
 %% @doc Store an encrypted shard
 -spec store_shard(pid(), binary(), binary()) -> {ok, binary()} | {error, term()}.
@@ -74,10 +74,10 @@ get_shard(VaultPid, ShardId) ->
 list_shards(VaultPid) ->
   gen_server:call(VaultPid, list_shards).
 
-%% @doc Get all permissions for vault
--spec get_permissions(pid()) -> {ok, map()} | {error, term()}.
-get_permissions(VaultPid) ->
-  gen_server:call(VaultPid, get_permissions).
+%% @doc Get all vault-level permissions
+-spec get_vault_permissions(pid()) -> {ok, map()} | {error, term()}.
+get_vault_permissions(VaultPid) ->
+  gen_server:call(VaultPid, get_vault_permissions).
 
 %% ===================================================================
 %% gen_server callbacks
@@ -93,15 +93,16 @@ init({VaultId, OwnerId}) ->
   },
   {ok, State, ?INACTIVITY_TIMEOUT}.
 
-handle_call({grant_shard_access, UserId, ShardIds}, _From, State) ->
-  % Placeholder: grant access to shards for user
-  % TODO: Implement signature verification and permission storage
+handle_call({grant_access, UserId, AccessLevel}, _From, State) ->
+  % Grant user access to entire vault (not per-shard)
+  % AccessLevel: view, upload, admin
+  % TODO: Implement vault-level permission storage
   UpdatedState = State#state{updated_at = erlang:system_time(millisecond)},
   {reply, {ok, granted}, UpdatedState, ?INACTIVITY_TIMEOUT};
 
-handle_call({revoke_shard_access, UserId, ShardIds}, _From, State) ->
-  % Placeholder: revoke access to shards for user
-  % TODO: Implement revocation logic
+handle_call({revoke_access, UserId}, _From, State) ->
+  % Revoke user's access to entire vault
+  % TODO: Implement vault-level revocation
   UpdatedState = State#state{updated_at = erlang:system_time(millisecond)},
   {reply, {ok, revoked}, UpdatedState, ?INACTIVITY_TIMEOUT};
 
@@ -129,7 +130,7 @@ handle_call(list_shards, _From, State) ->
   ShardIds = maps:keys(State#state.shards),
   {reply, {ok, ShardIds}, State, ?INACTIVITY_TIMEOUT};
 
-handle_call(get_permissions, _From, State) ->
+handle_call(get_vault_permissions, _From, State) ->
   {reply, {ok, State#state.permissions}, State, ?INACTIVITY_TIMEOUT};
 
 handle_call(_Request, _From, State) ->

@@ -1,5 +1,5 @@
 {application,vault,
-             [{config_mtime,1775204649},
+             [{config_mtime,1775286471},
               {optional_applications,[]},
               {applications,[kernel,stdlib,elixir,logger,couchbeam]},
               {description,"vault"},
