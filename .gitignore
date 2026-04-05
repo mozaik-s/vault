@@ -1,0 +1,65 @@
+# Erlang/OTP
+*.beam
+*.erl~
+erl_crash.dump
+*.plt
+.plt
+rebar3.crashdump
+
+# Elixir/Mix
+_build/
+deps/
+*.ez
+mix.lock
+
+# IDE/Editor
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+*.iml
+.elixir_ls/
+.envrc
+
+# Logs
+*.log
+vault.log*
+logs/
+erl_crash.dump
+
+# Test artifacts
+ct_run.nonode@nohost*/
+ct_log_cache
+variables-nonode@nohost
+
+# CouchDB/Database
+*.db
+*.dets
+
+# Node modules (if using npm)
+node_modules/
+package-lock.json
+yarn.lock
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+
+# OS
+.DS_Store
+Thumbs.db
+.directory
+
+# Build artifacts
+_build/
+_checkouts/
+ebin/
+priv/

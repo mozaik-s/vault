@@ -27,9 +27,8 @@
 
 -define(REGISTRY, vault_registry).
 
--record(state, {
-  vaults = #{} :: map()  % VaultId -> {Pid, StartTime}
-}).
+%% State as a map instead of record
+%% Keys: vaults (map of VaultId -> {Pid, StartTime})
 
 %% ===================================================================
 %% API
@@ -61,11 +60,11 @@ list_active_vaults() ->
 %% ===================================================================
 
 init([]) ->
-  State = #state{vaults = #{}},
+  State = #{vaults => #{}},
   {ok, State}.
 
 handle_call({get_or_create_vault, VaultId, Options}, _From, State) ->
-  Vaults = State#state.vaults,
+  Vaults = maps:get(vaults, State),
   case maps:find(VaultId, Vaults) of
     {ok, {Pid, _StartTime}} ->
       % Vault already exists, return existing process
@@ -78,7 +77,7 @@ handle_call({get_or_create_vault, VaultId, Options}, _From, State) ->
         {ok, Pid} ->
           StartTime = erlang:system_time(millisecond),
           NewVaults = Vaults#{VaultId => {Pid, StartTime}},
-          NewState = State#state{vaults = NewVaults},
+          NewState = State#{vaults => NewVaults},
           logger:info("Created new vault process ~p for vault_id ~p", [Pid, VaultId]),
           {reply, {ok, Pid}, NewState};
         {error, Reason} ->
@@ -88,13 +87,13 @@ handle_call({get_or_create_vault, VaultId, Options}, _From, State) ->
   end;
 
 handle_call({revoke_vault, VaultId}, _From, State) ->
-  Vaults = State#state.vaults,
+  Vaults = maps:get(vaults, State),
   case maps:find(VaultId, Vaults) of
     {ok, {Pid, _StartTime}} ->
       % TODO: Save vault state to CouchDB before terminating
       gen_server:stop(Pid),
       NewVaults = maps:remove(VaultId, Vaults),
-      NewState = State#state{vaults = NewVaults},
+      NewState = State#{vaults => NewVaults},
       logger:info("Revoked vault ~p", [VaultId]),
       {reply, ok, NewState};
     error ->
@@ -102,7 +101,7 @@ handle_call({revoke_vault, VaultId}, _From, State) ->
   end;
 
 handle_call(list_active_vaults, _From, State) ->
-  Vaults = State#state.vaults,
+  Vaults = maps:get(vaults, State),
   VaultIds = maps:keys(Vaults),
   {reply, {ok, VaultIds}, State};
 

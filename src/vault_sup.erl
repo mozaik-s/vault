@@ -1,7 +1,8 @@
 %%%-------------------------------------------------------------------
 %% @doc Vault application supervisor
-%% Manages supporting services: database, crypto, audit logging
+%% Manages supporting services: vault instance manager (registry)
 %% Does NOT manage individual vault processes (managed by vault_mgr)
+%% Database, crypto, and audit are now library modules (no gen_servers)
 %%%-------------------------------------------------------------------
 -module(vault_sup).
 
@@ -21,30 +22,6 @@ init([]) ->
   },
 
   ChildSpecs = [
-    % Vault database connection pool
-    #{
-      id => vault_db,
-      start => {vault_db, start_link, []},
-      type => worker,
-      shutdown => 5000
-    },
-    
-    % Vault cryptographic service
-    #{
-      id => vault_crypto,
-      start => {vault_crypto, start_link, []},
-      type => worker,
-      shutdown => 5000
-    },
-    
-    % Vault audit logger
-    #{
-      id => vault_audit,
-      start => {vault_audit, start_link, []},
-      type => worker,
-      shutdown => 5000
-    },
-    
     % Vault instance manager (registry/pool)
     #{
       id => vault_mgr,

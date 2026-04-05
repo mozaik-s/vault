@@ -44,16 +44,16 @@ end
 Then in your Elixir code:
 ```elixir
 # Get or create a vault instance
-{:ok, vault_pid} = vault_mgr:get_or_create_vault(<<"vault_123">>, %{owner_id: <<"user_456">>})
+{:ok, vault_pid} = :vault_mgr.get_or_create_vault(<<"vault_123">>, %{owner_id: <<"user_456">>})
 
 # Store encrypted shard
-{:ok, shard_id} = vault:store_shard(vault_pid, <<"shard_a1">>, encrypted_blob)
+{:ok, shard_id} = :gen_server.call(vault_pid, {:store_shard, <<"shard_a1">>, encrypted_blob})
 
 # Retrieve shard
-{:ok, blob} = vault:get_shard(vault_pid, <<"shard_a1">>)
+{:ok, blob} = :gen_server.call(vault_pid, {:get_shard, <<"shard_a1">>})
 
 # List shards
-{:ok, shard_ids} = vault:list_shards(vault_pid)
+{:ok, shard_ids} = :gen_server.call(vault_pid, :list_shards)
 ```
 
 **Development:**
@@ -104,34 +104,43 @@ iex -S mix
 
 ### Erlang Modules
 
-**Vault is a dynamic OTP system** with process-per-vault architecture:
+**Vault is a streamlined OTP system** with single gen_server-per-vault architecture:
 
 ```erlang
 % Vault manager - get or create vault process
 vault_mgr:get_or_create_vault(VaultId, Options) -> {ok, Pid}
 
-% Vault gen_server - individual vault instance
-vault:store_shard(Pid, ShardId, EncryptedBlob) -> {ok, ShardId}
-vault:get_shard(Pid, ShardId) -> {ok, EncryptedBlob}
-vault:list_shards(Pid) -> {ok, [ShardIds]}
-vault:grant_access(Pid, UserId, AccessLevel) -> {ok, granted}
-vault:revoke_access(Pid, UserId) -> {ok, revoked}
+% Vault gen_server - call operations directly via gen_server:call/2
+gen_server:call(Pid, {store_shard, ShardId, EncryptedBlob}) -> {ok, ShardId}
+gen_server:call(Pid, {get_shard, ShardId}) -> {ok, EncryptedBlob}
+gen_server:call(Pid, list_shards) -> {ok, [ShardIds]}
+gen_server:call(Pid, {grant_access, UserId, AccessLevel}) -> {ok, granted}
+gen_server:call(Pid, {revoke_access, UserId}) -> {ok, revoked}
+gen_server:call(Pid, get_vault_permissions) -> {ok, PermissionsMap}
 ```
 
-**Supporting Services:**
-- `vault_db.erl` - CouchDB interface (store/retrieve vault state)
-- `vault_crypto.erl` - Cryptographic operations (Ed25519, AES-256)
-- `vault_audit.erl` - Audit logging (access trail to CouchDB)
+**Supporting Library Modules (stateless):**
+- `vault_db.erl` - CouchDB interface (store/retrieve vault state) - library functions
+- `vault_crypto.erl` - Cryptographic operations (Ed25519, AES-256) - pure functions
+- `vault_audit.erl` - Audit logging (via Erlang logger) - logging functions
 
 **Vault Lifecycle:**
 ```
 1. Mozaik calls: vault_mgr:get_or_create_vault(<<"vault_123">>, Options)
 2. vault_mgr creates new vault:erl process if not exists
 3. Vault process loads state from CouchDB (if exists)
-4. Vault handles shard operations (store, get, grant, revoke)
+4. Vault handles shard operations via gen_server:call/2
+   - Internally calls vault_db, vault_crypto, vault_audit library functions
 5. On 5-minute inactivity timeout: save state to CouchDB, process dies
 6. Next operation: repeat from step 2
 ```
+
+**Architecture Philosophy**:
+- **One gen_server per vault** - manages state and timeouts
+- **Direct gen_server calls** - no wrapper functions, explicit and clear
+- **Library modules** - vault_db, vault_crypto, vault_audit are stateless functions (not gen_servers)
+- **Cleaner design** - no cross-process messaging overhead, easier to test
+- **Single supervisor** - manages only vault_mgr registry, not individual vaults
 
 **Key Design**: Vault stores **only encrypted shards**, NO asset-to-shard mapping. Mapping stored separately in Mozaik.
 
@@ -142,10 +151,10 @@ vault:revoke_access(Pid, UserId) -> {ok, revoked}
 defmodule Mozaik.VaultClient do
   def upload_shard(vault_id, shard_id, encrypted_data) do
     # Get or create vault process
-    {:ok, pid} = vault_mgr:get_or_create_vault(vault_id, %{owner_id: current_user_id()})
+    {:ok, pid} = :vault_mgr.get_or_create_vault(vault_id, %{owner_id: current_user_id()})
     
-    # Store shard in vault
-    case vault:store_shard(pid, shard_id, encrypted_data) do
+    # Store shard in vault via gen_server:call
+    case :gen_server.call(pid, {:store_shard, shard_id, encrypted_data}) do
       {:ok, shard_id} ->
         # Store in Mozaik: asset_id -> [shard_ids] mapping
         {:ok, shard_id}
@@ -154,14 +163,18 @@ defmodule Mozaik.VaultClient do
     end
   end
   
-  def download_shard(vault_id, shard_id) do
-    case vault:get_shard(vault_id, shard_id) do
+  def download_shard(vault_pid, shard_id) do
+    case :gen_server.call(vault_pid, {:get_shard, shard_id}) do
       {:ok, encrypted_data} ->
         # Reconstruct full asset using mapping in Mozaik
         {:ok, encrypted_data}
       {:error, reason} ->
         {:error, reason}
     end
+  end
+  
+  def grant_access(vault_pid, user_id, access_level) do
+    :gen_server.call(vault_pid, {:grant_access, user_id, access_level})
   end
 end
 ```
@@ -223,16 +236,13 @@ ok = vault:stop(Pid).
 
 ```erlang
 % Store encrypted shard
-{ok, ShardId} = vault:store_shard(VaultId, ShardId, EncryptedBlob).
+{ok, ShardId} = gen_server:call(VaultPid, {store_shard, ShardId, EncryptedBlob}).
 
 % Download shard
-{ok, EncryptedBlob} = vault:get_shard(VaultId, ShardId).
+{ok, EncryptedBlob} = gen_server:call(VaultPid, {get_shard, ShardId}).
 
 % List all shard IDs in vault
-{ok, ShardIds} = vault:list_shard_ids(VaultId).
-
-% Delete shard
-ok = vault:delete_shard(VaultId, ShardId).
+{ok, ShardIds} = gen_server:call(VaultPid, list_shards).
 ```
 
 ### Permissions
@@ -241,13 +251,13 @@ ok = vault:delete_shard(VaultId, ShardId).
 
 ```erlang
 % Grant user vault-level access
-{ok, granted} = vault:grant_access(VaultPid, UserId, view).
+{ok, granted} = gen_server:call(VaultPid, {grant_access, UserId, view}).
 
 % Revoke user's vault access
-{ok, revoked} = vault:revoke_access(VaultPid, UserId).
+{ok, revoked} = gen_server:call(VaultPid, {revoke_access, UserId}).
 
 % List all permissions for vault
-{ok, PermissionsMap} = vault:get_vault_permissions(VaultPid).
+{ok, PermissionsMap} = gen_server:call(VaultPid, get_vault_permissions).
 ```
 
 **Access Levels**: `view`, `upload`, `admin` (exact atoms to be finalized in Phase 2)
