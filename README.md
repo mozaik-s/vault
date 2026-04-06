@@ -325,6 +325,53 @@ This provides:
 - 📊 Better scaling (shard storage separated to object storage)
 - 🔄 Easier replication (each database syncs independently)
 
+### vault_db.erl Implementation
+
+The `vault_db.erl` module provides a clean library interface to CouchDB:
+
+**Key Functions:**
+- `store_vault/2` - Save vault state to CouchDB with `vault:*` ID
+- `get_vault/1` - Retrieve vault document
+- `update_vault/2` - Fetch, merge updates, save (read-modify-write pattern)
+- `store_shard/3` - Save encrypted shard with `shard:*:*` ID
+- `get_shard/2` - Retrieve individual shard
+- `get_all_shards_for_vault/1` - Query all shards for vault using prefix search
+- `delete_shard/2` - Remove shard document
+- `delete_vault/1` - Delete vault and cascade-delete all shards
+
+**Error Handling:**
+- Gracefully handles CouchDB connection failures
+- Returns `{error, not_found}` when documents don't exist
+- Comprehensive debug logging for troubleshooting
+- All operations are atomic (no partial updates on failure)
+
+**Testing:**
+
+Run the complete test suite (starts CouchDB automatically):
+```bash
+make test
+```
+
+This will:
+1. Start CouchDB 3.0 in Docker
+2. Compile all Erlang source files
+3. Run 16 Common Test cases
+4. Display test results and logs location
+
+**Test Suite:**
+- `test/vault_SUITE.erl` - 6 test cases for gen_server operations
+- `test/vault_db_SUITE.erl` - 10 test cases for CouchDB integration
+
+**Requirements:**
+- Docker and Docker Compose (to run CouchDB)
+- Or manually run CouchDB on `http://localhost:5984` and use: `mix compile && rebar3 ct`
+
+**Troubleshooting:**
+- `Docker not found`: Install Docker Desktop from https://www.docker.com
+- `Docker daemon is not running`: Start Docker Desktop
+- Tests still failing: Check `docker logs vault_couchdb_1` for CouchDB errors
+- After tests: Run `docker-compose down` to stop CouchDB
+
 ## Technology Stack
 
 | Layer | Technology | Purpose |

@@ -9,7 +9,6 @@ defmodule Vault.MixProject do
       start_permanent: Mix.env() == :prod,
       deps: deps(),
       erlc_paths: ["src"],
-      test_pattern: "*_SUITE.erl",
       dialyzer: [
         plt_add_apps: [:eunit, :common_test]
       ]

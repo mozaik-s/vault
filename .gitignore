@@ -5,6 +5,7 @@ erl_crash.dump
 *.plt
 .plt
 rebar3.crashdump
+rebar.lock
 
 # Elixir/Mix
 _build/
@@ -27,11 +28,14 @@ mix.lock
 *.log
 vault.log*
 logs/
-erl_crash.dump
 
-# Test artifacts
-ct_run.nonode@nohost*/
+# Common Test (CT) artifacts
+ct_run.*/
+ct_default.css
 ct_log_cache
+all_runs.html
+jquery-latest.js
+jquery.tablesorter.min.js
 variables-nonode@nohost
 
 # CouchDB/Database
@@ -54,12 +58,5 @@ temp/
 *.tmp
 
 # OS
-.DS_Store
 Thumbs.db
 .directory
-
-# Build artifacts
-_build/
-_checkouts/
-ebin/
-priv/

@@ -29,21 +29,20 @@ configure_logging() ->
   LogFile = log_file(),
   ConsoleEnabled = console_enabled(),
   FileEnabled = file_enabled(),
-  
+
   % Configure console handler
   case ConsoleEnabled of
     true ->
       ok = logger:add_handler(console, logger_std_h, #{
         level => LogLevel,
         formatter => {logger_formatter, #{
-          template => [time, " [", level, "] ", pid, " ", mfa, ":", line, " ", msg, "\n"],
-          time_designator => " "
+          template => [time, " [", level, "] ", pid, " ", mfa, ":", line, " ", msg, "\n"]
         }}
       });
     false ->
       ok
   end,
-  
+
   % Configure file handler
   case FileEnabled of
     true ->
@@ -56,14 +55,13 @@ configure_logging() ->
         },
         level => LogLevel,
         formatter => {logger_formatter, #{
-          template => [time, " [", level, "] ", pid, " ", mfa, ":", line, " ", msg, "\n"],
-          time_designator => " "
+          template => [time, " [", level, "] ", pid, " ", mfa, ":", line, " ", msg, "\n"]
         }}
       });
     false ->
       ok
   end,
-  
+
   logger:set_primary_config(level, LogLevel),
   ok.
 
