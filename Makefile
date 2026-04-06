@@ -12,4 +12,4 @@ lint:
 	@echo "Linting not available, but code compiles without warnings"
 
 clean:
-	rm -rf _build deps mix.lock
+	rm -rf _build
