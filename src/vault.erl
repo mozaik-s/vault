@@ -10,8 +10,8 @@
   start_link/2,
   grant_access/3,
   revoke_access/2,
-  store_shard/3,
-  get_shard/2,
+  store_shard/4,
+  get_shard/3,
   list_shards/1,
   get_vault_permissions/1
 ]).
@@ -36,14 +36,14 @@ revoke_access(VaultPid, UserId) ->
   gen_server:call(VaultPid, {revoke_access, UserId}).
 
 %% @doc Store encrypted shard in vault
--spec store_shard(pid(), binary(), binary()) -> {ok, binary()} | {error, term()}.
-store_shard(VaultPid, ShardId, EncryptedBlob) ->
-  gen_server:call(VaultPid, {store_shard, ShardId, EncryptedBlob}).
+-spec store_shard(pid(), binary(), binary(), binary()) -> {ok, binary()} | {error, term()}.
+store_shard(VaultPid, ShardId, EncryptedBlob, CallerId) ->
+  gen_server:call(VaultPid, {store_shard, ShardId, EncryptedBlob, CallerId}).
 
 %% @doc Get encrypted shard from vault
--spec get_shard(pid(), binary()) -> {ok, binary()} | {error, term()}.
-get_shard(VaultPid, ShardId) ->
-  gen_server:call(VaultPid, {get_shard, ShardId}).
+-spec get_shard(pid(), binary(), binary()) -> {ok, binary()} | {error, term()}.
+get_shard(VaultPid, ShardId, CallerId) ->
+  gen_server:call(VaultPid, {get_shard, ShardId, CallerId}).
 
 %% @doc List all shard IDs in vault
 -spec list_shards(pid()) -> {ok, list()} | {error, term()}.

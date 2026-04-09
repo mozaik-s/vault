@@ -31,19 +31,25 @@
 %% @doc Start a vault server process with the given vault_id and owner_id
 -spec start_link(binary(), binary()) -> {ok, pid()} | {error, term()}.
 start_link(VaultId, OwnerId) ->
-  gen_server:start_link(?MODULE, {VaultId, OwnerId}, []).
+  gen_server:start_link(?MODULE, #{vault_id => VaultId, owner => OwnerId}, []).
 
 %% ===================================================================
 %% gen_server callbacks
 %% ===================================================================
 
-init({VaultId, OwnerId}) ->
+init(Options) ->
+  VaultId = maps:get(vault_id, Options),
+  OwnerId = maps:get(owner, Options, undefined),
+  Permissions = case OwnerId of
+    undefined -> #{};
+    _         -> #{OwnerId => owner}
+  end,
   Now = erlang:system_time(millisecond),
   State = #{
     vault_id => VaultId,
     owner_id => OwnerId,
     shards => #{},
-    permissions => #{},
+    permissions => Permissions,
     audit_trail => [],
     created_at => Now,
     updated_at => Now
@@ -51,36 +57,51 @@ init({VaultId, OwnerId}) ->
   {ok, State, ?INACTIVITY_TIMEOUT}.
 
 handle_call({grant_access, UserId, AccessLevel}, _From, State) ->
-  % Grant user access to entire vault (not per-shard)
-  % AccessLevel: view, upload, admin
-  % TODO: Implement vault-level permission storage
-  UpdatedState = State#{updated_at => erlang:system_time(millisecond)},
+  Permissions = maps:get(permissions, State),
+  NewPermissions = Permissions#{UserId => AccessLevel},
+  UpdatedState = State#{
+    permissions => NewPermissions,
+    updated_at => erlang:system_time(millisecond)
+  },
   {reply, {ok, granted}, UpdatedState, ?INACTIVITY_TIMEOUT};
 
 handle_call({revoke_access, UserId}, _From, State) ->
-  % Revoke user's access to entire vault
-  % TODO: Implement vault-level revocation
-  UpdatedState = State#{updated_at => erlang:system_time(millisecond)},
-  {reply, {ok, revoked}, UpdatedState, ?INACTIVITY_TIMEOUT};
-
-handle_call({store_shard, ShardId, EncryptedBlob}, _From, State) ->
-  % Placeholder: store encrypted shard
-  % TODO: Implement shard hashing and storage
-  Shards = maps:get(shards, State),
-  NewShards = Shards#{ShardId => EncryptedBlob},
+  Permissions = maps:get(permissions, State),
+  NewPermissions = maps:remove(UserId, Permissions),
   UpdatedState = State#{
-    shards => NewShards,
+    permissions => NewPermissions,
     updated_at => erlang:system_time(millisecond)
   },
-  {reply, {ok, ShardId}, UpdatedState, ?INACTIVITY_TIMEOUT};
+  {reply, {ok, revoked}, UpdatedState, ?INACTIVITY_TIMEOUT};
 
-handle_call({get_shard, ShardId}, _From, State) ->
-  Shards = maps:get(shards, State),
-  case maps:find(ShardId, Shards) of
-    {ok, EncryptedBlob} ->
-      {reply, {ok, EncryptedBlob}, State, ?INACTIVITY_TIMEOUT};
-    error ->
-      {reply, {error, shard_not_found}, State, ?INACTIVITY_TIMEOUT}
+handle_call({store_shard, ShardId, EncryptedBlob, CallerId}, _From, State) ->
+  Permissions = maps:get(permissions, State),
+  case check_permission(CallerId, write, Permissions) of
+    ok ->
+      Shards = maps:get(shards, State),
+      NewShards = Shards#{ShardId => EncryptedBlob},
+      UpdatedState = State#{
+        shards => NewShards,
+        updated_at => erlang:system_time(millisecond)
+      },
+      {reply, {ok, ShardId}, UpdatedState, ?INACTIVITY_TIMEOUT};
+    {error, unauthorized} ->
+      {reply, {error, unauthorized}, State, ?INACTIVITY_TIMEOUT}
+  end;
+
+handle_call({get_shard, ShardId, CallerId}, _From, State) ->
+  Permissions = maps:get(permissions, State),
+  case check_permission(CallerId, read, Permissions) of
+    ok ->
+      Shards = maps:get(shards, State),
+      case maps:find(ShardId, Shards) of
+        {ok, EncryptedBlob} ->
+          {reply, {ok, EncryptedBlob}, State, ?INACTIVITY_TIMEOUT};
+        error ->
+          {reply, {error, shard_not_found}, State, ?INACTIVITY_TIMEOUT}
+      end;
+    {error, unauthorized} ->
+      {reply, {error, unauthorized}, State, ?INACTIVITY_TIMEOUT}
   end;
 
 handle_call(list_shards, _From, State) ->
@@ -125,3 +146,16 @@ terminate(_Reason, State) ->
 
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
+
+%% ===================================================================
+%% Internal functions
+%% ===================================================================
+
+check_permission(CallerId, RequiredLevel, Permissions) ->
+  case maps:get(CallerId, Permissions, undefined) of
+    owner -> ok;
+    write when RequiredLevel =:= write -> ok;
+    write when RequiredLevel =:= read  -> ok;
+    read  when RequiredLevel =:= read  -> ok;
+    _     -> {error, unauthorized}
+  end.

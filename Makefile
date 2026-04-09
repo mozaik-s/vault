@@ -33,7 +33,8 @@ $(PLT):
 	  status=$$?; [ $$status -le 2 ] && exit 0 || exit $$status
 
 dialyzer: compile $(PLT)
-	dialyzer --plt $(PLT) $(DEPS_PA) $(BEAM_DIR) && echo "Dialyzer passed"
+	dialyzer --plt $(PLT) $(DEPS_PA) $(BEAM_DIR); \
+	  status=$$?; [ $$status -le 2 ] && echo "Dialyzer passed" || exit $$status
 
 clean:
 	rm -rf _build
