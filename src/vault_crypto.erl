@@ -21,7 +21,7 @@ sign(_Data, _PrivateKey) ->
   {error, not_implemented}.
 
 %% @doc Verify signature with public key using Ed25519
--spec verify(binary(), binary(), binary()) -> {ok, verified} | {error, invalid}.
+-spec verify(binary(), binary(), binary()) -> {ok, verified} | {error, invalid | not_implemented}.
 verify(_Data, _Signature, _PublicKey) ->
   % TODO: Use enacl library for Ed25519 verification
   % enacl:verify_detached(Signature, Data, PublicKey)

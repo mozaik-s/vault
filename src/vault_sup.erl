@@ -1,8 +1,8 @@
 %%%-------------------------------------------------------------------
 %% @doc Vault application supervisor
-%% Manages supporting services: vault instance manager (registry)
-%% Does NOT manage individual vault processes (managed by vault_mgr)
-%% Database, crypto, and audit are now library modules (no gen_servers)
+%% Manages supporting services: vault process pool (vault_pool).
+%% Does NOT manage individual vault processes (managed by vault_pool).
+%% Database, crypto, and audit are library modules (no gen_servers).
 %%%-------------------------------------------------------------------
 -module(vault_sup).
 
@@ -22,10 +22,9 @@ init([]) ->
   },
 
   ChildSpecs = [
-    % Vault instance manager (registry/pool)
     #{
-      id => vault_mgr,
-      start => {vault_mgr, start_link, []},
+      id => vault_pool,
+      start => {vault_pool, start_link, []},
       type => worker,
       shutdown => 5000
     }

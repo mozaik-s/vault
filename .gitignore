@@ -13,6 +13,9 @@ deps/
 *.ez
 mix.lock
 
+# rebar3
+.rebar3
+
 # IDE/Editor
 .idea/
 .vscode/
@@ -34,9 +37,15 @@ ct_run.*/
 ct_default.css
 ct_log_cache
 all_runs.html
+index.html
+suite.log.latest.html
 jquery-latest.js
+jquery-migrate.js
 jquery.tablesorter.min.js
-variables-nonode@nohost
+variables-*
+
+# Compiled test artifacts
+test/*.beam
 
 # CouchDB/Database
 *.db

@@ -1,9 +1,9 @@
 %%%-------------------------------------------------------------------
-%% @doc Vault instance manager - registry and lifecycle management
-%% Manages creation, retrieval, and termination of vault processes
-%% Implements on-demand vault process spawning with timeout cleanup
+%% @doc Vault process pool - registry and lifecycle management
+%% Manages creation, retrieval, and termination of vault processes.
+%% Implements on-demand vault process spawning with timeout cleanup.
 %%%-------------------------------------------------------------------
--module(vault_mgr).
+-module(vault_pool).
 
 -behaviour(gen_server).
 
@@ -25,27 +25,23 @@
   code_change/3
 ]).
 
--define(REGISTRY, vault_registry).
-
-%% State as a map instead of record
-%% Keys: vaults (map of VaultId -> {Pid, StartTime})
+%% State: #{vaults => #{VaultId => {Pid, StartTime}}}
 
 %% ===================================================================
 %% API
 %% ===================================================================
 
-%% @doc Start the vault manager
+%% @doc Start the vault pool
 -spec start_link() -> {ok, pid()} | {error, term()}.
 start_link() ->
   gen_server:start_link({local, ?MODULE}, ?MODULE, [], []).
 
-%% @doc Get existing vault process or create new one
-%% Returns {ok, Pid} or {error, Reason}
+%% @doc Get existing vault process or create a new one
 -spec get_or_create_vault(binary(), map()) -> {ok, pid()} | {error, term()}.
 get_or_create_vault(VaultId, Options) ->
   gen_server:call(?MODULE, {get_or_create_vault, VaultId, Options}).
 
-%% @doc Stop a vault process and save its state
+%% @doc Stop a vault process and remove it from the pool
 -spec revoke_vault(binary()) -> ok | {error, term()}.
 revoke_vault(VaultId) ->
   gen_server:call(?MODULE, {revoke_vault, VaultId}).
@@ -60,24 +56,20 @@ list_active_vaults() ->
 %% ===================================================================
 
 init([]) ->
-  State = #{vaults => #{}},
-  {ok, State}.
+  {ok, #{vaults => #{}}}.
 
 handle_call({get_or_create_vault, VaultId, Options}, _From, State) ->
   Vaults = maps:get(vaults, State),
   case maps:find(VaultId, Vaults) of
     {ok, {Pid, _StartTime}} ->
-      % Vault already exists, return existing process
       logger:debug("Vault ~p already active, returning existing process", [VaultId]),
       {reply, {ok, Pid}, State};
     error ->
-      % Vault doesn't exist, create new process
       OwnerId = maps:get(owner_id, Options, undefined),
       case vault:start_link(VaultId, OwnerId) of
         {ok, Pid} ->
           StartTime = erlang:system_time(millisecond),
-          NewVaults = Vaults#{VaultId => {Pid, StartTime}},
-          NewState = State#{vaults => NewVaults},
+          NewState = State#{vaults => Vaults#{VaultId => {Pid, StartTime}}},
           logger:info("Created new vault process ~p for vault_id ~p", [Pid, VaultId]),
           {reply, {ok, Pid}, NewState};
         {error, Reason} ->
@@ -90,10 +82,8 @@ handle_call({revoke_vault, VaultId}, _From, State) ->
   Vaults = maps:get(vaults, State),
   case maps:find(VaultId, Vaults) of
     {ok, {Pid, _StartTime}} ->
-      % TODO: Save vault state to CouchDB before terminating
       gen_server:stop(Pid),
-      NewVaults = maps:remove(VaultId, Vaults),
-      NewState = State#{vaults => NewVaults},
+      NewState = State#{vaults => maps:remove(VaultId, Vaults)},
       logger:info("Revoked vault ~p", [VaultId]),
       {reply, ok, NewState};
     error ->
@@ -101,8 +91,7 @@ handle_call({revoke_vault, VaultId}, _From, State) ->
   end;
 
 handle_call(list_active_vaults, _From, State) ->
-  Vaults = maps:get(vaults, State),
-  VaultIds = maps:keys(Vaults),
+  VaultIds = maps:keys(maps:get(vaults, State)),
   {reply, {ok, VaultIds}, State};
 
 handle_call(_Request, _From, State) ->
