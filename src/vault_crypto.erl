@@ -14,32 +14,48 @@
 
 %% @doc Sign data with private key using Ed25519
 -spec sign(binary(), binary()) -> {ok, binary()} | {error, term()}.
-sign(_Data, _PrivateKey) ->
-  % TODO: Use enacl library for Ed25519 signing
-  % enacl:sign_detached(Data, PrivateKey)
-  logger:debug("Signing data with Ed25519", []),
-  {error, not_implemented}.
+sign(Data, PrivateKey) ->
+  try
+    Signature = crypto:sign(eddsa, none, Data, [PrivateKey, ed25519]),
+    {ok, Signature}
+  catch
+    _:Reason -> {error, Reason}
+  end.
 
 %% @doc Verify signature with public key using Ed25519
--spec verify(binary(), binary(), binary()) -> {ok, verified} | {error, invalid | not_implemented}.
-verify(_Data, _Signature, _PublicKey) ->
-  % TODO: Use enacl library for Ed25519 verification
-  % enacl:verify_detached(Signature, Data, PublicKey)
-  logger:debug("Verifying Ed25519 signature", []),
-  {error, not_implemented}.
+-spec verify(binary(), binary(), binary()) -> {ok, verified} | {error, invalid | term()}.
+verify(Data, Signature, PublicKey) ->
+  try
+    case crypto:verify(eddsa, none, Data, Signature, [PublicKey, ed25519]) of
+      true -> {ok, verified};
+      false -> {error, invalid}
+    end
+  catch
+    _:Reason -> {error, Reason}
+  end.
 
-%% @doc Encrypt data with AES-256
+%% @doc Encrypt data with AES-256-GCM. Key must be 32 bytes.
+%% Returns <<IV:12/binary, Tag:16/binary, CipherText/binary>>.
 -spec encrypt(binary(), binary()) -> {ok, binary()} | {error, term()}.
-encrypt(_Data, _Key) ->
-  % TODO: Use enacl library for AES-256 encryption
-  % enacl:secretbox(Data, Nonce, Key)
-  logger:debug("Encrypting data with AES-256", []),
-  {error, not_implemented}.
+encrypt(Data, Key) ->
+  try
+    IV = crypto:strong_rand_bytes(12),
+    {CipherText, Tag} = crypto:crypto_one_time_aead(aes_256_gcm, Key, IV, Data, <<>>, 16, true),
+    {ok, <<IV:12/binary, Tag:16/binary, CipherText/binary>>}
+  catch
+    _:Reason -> {error, Reason}
+  end.
 
-%% @doc Decrypt data with AES-256
+%% @doc Decrypt AES-256-GCM ciphertext produced by encrypt/2.
 -spec decrypt(binary(), binary()) -> {ok, binary()} | {error, term()}.
-decrypt(_EncryptedData, _Key) ->
-  % TODO: Use enacl library for AES-256 decryption
-  % enacl:secretbox_open(EncryptedData, Nonce, Key)
-  logger:debug("Decrypting data with AES-256", []),
-  {error, not_implemented}.
+decrypt(<<IV:12/binary, Tag:16/binary, CipherText/binary>>, Key) ->
+  try
+    case crypto:crypto_one_time_aead(aes_256_gcm, Key, IV, CipherText, <<>>, Tag, false) of
+      error -> {error, decryption_failed};
+      PlainText -> {ok, PlainText}
+    end
+  catch
+    _:Reason -> {error, Reason}
+  end;
+decrypt(_CipherBinary, _Key) ->
+  {error, decryption_failed}.
