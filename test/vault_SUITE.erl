@@ -119,7 +119,7 @@ test_list_shards(_Config) ->
 test_grant_shard_access(_Config) ->
   {ok, VaultPid} = vault:start_link(<<"vault_4">>, <<"user_4">>),
   vault:store_shard(VaultPid, <<"shard_c">>, <<"data_c">>, <<"user_4">>),
-  {ok, granted} = vault:grant_access(VaultPid, <<"user_5">>, read),
+  {ok, granted} = vault:grant_access(VaultPid, <<"user_5">>),
   {ok, Perms} = vault:get_vault_permissions(VaultPid),
   read = maps:get(<<"user_5">>, Perms),
   ok.
@@ -127,7 +127,7 @@ test_grant_shard_access(_Config) ->
 test_revoke_shard_access(_Config) ->
   {ok, VaultPid} = vault:start_link(<<"vault_5">>, <<"user_5">>),
   vault:store_shard(VaultPid, <<"shard_d">>, <<"data_d">>, <<"user_5">>),
-  vault:grant_access(VaultPid, <<"user_6">>, write),
+  vault:grant_access(VaultPid, <<"user_6">>),
   {ok, revoked} = vault:revoke_access(VaultPid, <<"user_6">>),
   {ok, Perms} = vault:get_vault_permissions(VaultPid),
   false = maps:is_key(<<"user_6">>, Perms),
@@ -141,13 +141,13 @@ test_unauthorized_get_shard(_Config) ->
 
 test_unauthorized_store_shard(_Config) ->
   {ok, VaultPid} = vault:start_link(<<"vault_7">>, <<"alice">>),
-  vault:grant_access(VaultPid, <<"bob">>, read),
+  vault:grant_access(VaultPid, <<"bob">>),
   {error, unauthorized} = vault:store_shard(VaultPid, <<"s2">>, <<"data">>, <<"bob">>),
   ok.
 
 test_revoke_removes_access(_Config) ->
   {ok, VaultPid} = vault:start_link(<<"vault_8">>, <<"alice">>),
-  vault:grant_access(VaultPid, <<"dave">>, read),
+  vault:grant_access(VaultPid, <<"dave">>),
   vault:store_shard(VaultPid, <<"shard_f">>, <<"payload">>, <<"alice">>),
   {ok, <<"payload">>} = vault:get_shard(VaultPid, <<"shard_f">>, <<"dave">>),
   vault:revoke_access(VaultPid, <<"dave">>),

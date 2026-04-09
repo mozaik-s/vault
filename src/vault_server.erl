@@ -39,26 +39,22 @@ start_link(VaultId, OwnerId) ->
 
 init(Options) ->
   VaultId = maps:get(vault_id, Options),
-  OwnerId = maps:get(owner, Options, undefined),
-  Permissions = case OwnerId of
-    undefined -> #{};
-    _         -> #{OwnerId => owner}
-  end,
+  OwnerId = maps:get(owner, Options),
   Now = erlang:system_time(millisecond),
   State = #{
     vault_id => VaultId,
     owner_id => OwnerId,
     shards => #{},
-    permissions => Permissions,
+    permissions => #{OwnerId => owner},
     audit_trail => [],
     created_at => Now,
     updated_at => Now
   },
   {ok, State, ?INACTIVITY_TIMEOUT}.
 
-handle_call({grant_access, UserId, AccessLevel}, _From, State) ->
+handle_call({grant_access, UserId}, _From, State) ->
   Permissions = maps:get(permissions, State),
-  NewPermissions = Permissions#{UserId => AccessLevel},
+  NewPermissions = Permissions#{UserId => read},
   UpdatedState = State#{
     permissions => NewPermissions,
     updated_at => erlang:system_time(millisecond)
@@ -151,11 +147,13 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %% ===================================================================
 
-check_permission(CallerId, RequiredLevel, Permissions) ->
-  case maps:get(CallerId, Permissions, undefined) of
+check_permission(CallerId, write, Permissions) ->
+  case maps:get(CallerId, Permissions, none) of
     owner -> ok;
-    write when RequiredLevel =:= write -> ok;
-    write when RequiredLevel =:= read  -> ok;
-    read  when RequiredLevel =:= read  -> ok;
     _     -> {error, unauthorized}
+  end;
+check_permission(CallerId, read, Permissions) ->
+  case maps:get(CallerId, Permissions, none) of
+    none -> {error, unauthorized};
+    _    -> ok
   end.
