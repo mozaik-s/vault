@@ -12,22 +12,22 @@
 -export([init/1]).
 
 start_link() ->
-  supervisor:start_link({local, ?MODULE}, ?MODULE, []).
+    supervisor:start_link({local, ?MODULE}, ?MODULE, []).
 
 init([]) ->
-  SupFlags = #{
-    strategy => one_for_one,
-    intensity => 5,
-    period => 10
-  },
+    SupFlags = #{
+        strategy => one_for_one,
+        intensity => 5,
+        period => 10
+    },
 
-  ChildSpecs = [
-    #{
-      id => vault_pool,
-      start => {vault_pool, start_link, []},
-      type => worker,
-      shutdown => 5000
-    }
-  ],
+    ChildSpecs = [
+        #{
+            id => vault_pool,
+            start => {vault_pool, start_link, []},
+            type => worker,
+            shutdown => 5000
+        }
+    ],
 
-  {ok, {SupFlags, ChildSpecs}}.
+    {ok, {SupFlags, ChildSpecs}}.

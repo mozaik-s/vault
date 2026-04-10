@@ -1,6 +1,6 @@
 SHELL := /bin/bash
 
-.PHONY: compile test lint dialyzer clean
+.PHONY: compile test lint dialyzer clean fmt flint
 
 PLT       = .dialyzer.plt
 BEAM_DIR  = _build/dev/lib/vault/ebin
@@ -29,6 +29,11 @@ test: compile
 
 lint:
 	@elvis rock && echo "Linting passed"
+
+fmt:
+	@rebar3 fmt
+
+flint: fmt lint
 
 $(PLT):
 	dialyzer --build_plt --output_plt $(PLT) \
