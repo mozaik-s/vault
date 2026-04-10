@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 .PHONY: compile test lint dialyzer clean
 
 PLT       = .dialyzer.plt
@@ -18,10 +20,12 @@ test: compile
 	  -spec test/vault.spec \
 	  -cover test/cover.spec \
 	  -logdir _build/test/logs \
-	  2>&1 | grep -E "(Testing |TEST COMPLETE|FAILED|ERROR|failed of|Updating )"
-	@COVERDATA=$$(ls -t _build/test/logs/ct_run.*/all.coverdata 2>/dev/null | head -1); \
+	  2>&1; \
+	  CT_EXIT=$$?; \
+	  COVERDATA=$$(ls -t _build/test/logs/ct_run.*/all.coverdata 2>/dev/null | head -1); \
 	  [ -n "$$COVERDATA" ] && escript scripts/print_coverage.escript "$$COVERDATA" \
-	    | grep -v "^Analysis includes" | grep -v "^\[\"" || true
+	    | grep -v "^Analysis includes" | grep -v "^\[\"" || true; \
+	  exit $$CT_EXIT
 
 lint:
 	@elvis rock && echo "Linting passed"
