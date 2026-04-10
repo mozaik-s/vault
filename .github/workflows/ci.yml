@@ -47,7 +47,7 @@ jobs:
 
       - name: Install elvis
         run: |
-          mix escript.install --force hex elvis
+          cd /tmp && mix escript.install --force hex elvis
           echo "$HOME/.mix/escripts" >> $GITHUB_PATH
 
       - name: Compile
