@@ -128,7 +128,7 @@ test_grant_shard_access(_Config) ->
   vault:store_shard(VaultPid, <<"shard_c">>, <<"data_c">>, <<"user_4">>),
   {ok, granted} = vault:grant_access(VaultPid, <<"user_5">>, <<"user_4">>),
   {ok, Perms} = vault:get_vault_permissions(VaultPid),
-  <<"read">> = maps:get(vault_utils:hash_id(<<"user_5">>), Perms),
+  <<"read">> = maps:get(crypto:hash(sha256, <<"user_5">>), Perms),
   ok.
 
 test_revoke_shard_access(_Config) ->
@@ -137,7 +137,7 @@ test_revoke_shard_access(_Config) ->
   vault:grant_access(VaultPid, <<"user_6">>, <<"user_5">>),
   {ok, revoked} = vault:revoke_access(VaultPid, <<"user_6">>, <<"user_5">>),
   {ok, Perms} = vault:get_vault_permissions(VaultPid),
-  false = maps:is_key(vault_utils:hash_id(<<"user_6">>), Perms),
+  false = maps:is_key(crypto:hash(sha256, <<"user_6">>), Perms),
   ok.
 
 test_unauthorized_get_shard(_Config) ->

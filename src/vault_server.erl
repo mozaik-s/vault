@@ -27,7 +27,7 @@
 -define(DEFAULT_STATE(VaultId, OwnerId, Now), #{
   vault_id    => VaultId,
   owner_id    => OwnerId,
-  permissions => #{vault_utils:hash_id(OwnerId) => <<"owner">>},
+  permissions => #{hash_id(OwnerId) => <<"owner">>},
   audit_trail => [],
   created_at  => Now,
   updated_at  => Now
@@ -54,7 +54,7 @@ init({VaultId, OwnerId}) ->
 handle_call({grant_access, CallerId, UserId}, _From, #{permissions := Permissions} = State) ->
   case can_write(CallerId, Permissions) of
     ok ->
-      NewPermissions = Permissions#{vault_utils:hash_id(UserId) => <<"read">>},
+      NewPermissions = Permissions#{hash_id(UserId) => <<"read">>},
       UpdatedState = State#{
         permissions => NewPermissions,
         updated_at  => erlang:system_time(millisecond)
@@ -67,7 +67,7 @@ handle_call({grant_access, CallerId, UserId}, _From, #{permissions := Permission
 handle_call({revoke_access, CallerId, UserId}, _From, #{permissions := Permissions} = State) ->
   case can_write(CallerId, Permissions) of
     ok ->
-      NewPermissions = maps:remove(vault_utils:hash_id(UserId), Permissions),
+      NewPermissions = maps:remove(hash_id(UserId), Permissions),
       UpdatedState = State#{
         permissions => NewPermissions,
         updated_at  => erlang:system_time(millisecond)
@@ -137,15 +137,20 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %% ===================================================================
 
+-define(HASH_ALGORITHM, sha256).
+
+hash_id(UserId) ->
+  crypto:hash(?HASH_ALGORITHM, UserId).
+
 can_write(CallerId, Permissions) ->
-  HashedId = vault_utils:hash_id(CallerId),
+  HashedId = hash_id(CallerId),
   case Permissions of
     #{HashedId := <<"owner">>} -> ok;
     _                          -> {error, unauthorized}
   end.
 
 can_read(CallerId, Permissions) ->
-  HashedId = vault_utils:hash_id(CallerId),
+  HashedId = hash_id(CallerId),
   case Permissions of
     #{HashedId := _} -> ok;
     _                -> {error, unauthorized}
