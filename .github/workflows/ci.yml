@@ -47,9 +47,10 @@ jobs:
 
       - name: Install elvis
         run: |
+          curl -fsSL https://s3.amazonaws.com/rebar3/rebar3 -o /tmp/rebar3 && chmod +x /tmp/rebar3
           git clone --depth 1 --branch 5.0.2 https://github.com/inaka/elvis /tmp/elvis-src
-          cd /tmp/elvis-src && rebar3 escriptize
-          sudo mv /tmp/elvis-src/_build/default/bin/elvis /usr/local/bin/elvis
+          cd /tmp/elvis-src && /tmp/rebar3 escriptize
+          sudo cp /tmp/elvis-src/_build/default/bin/elvis /usr/local/bin/elvis
 
       - name: Compile
         run: make compile
