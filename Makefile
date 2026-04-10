@@ -1,3 +1,5 @@
+SHELL := /bin/bash
+
 .PHONY: compile test lint dialyzer clean
 
 PLT       = .dialyzer.plt
@@ -14,11 +16,14 @@ compile:
 
 test: compile
 	@mkdir -p _build/test/logs
-	@ct_run $(DEPS_PA) \
+	@set -o pipefail; ct_run $(DEPS_PA) \
 	  -spec test/vault.spec \
 	  -cover test/cover.spec \
 	  -logdir _build/test/logs \
-	  2>&1 | grep -E "(Testing |TEST COMPLETE|FAILED|ERROR|failed of|Updating )"
+	  2>&1 | tee /tmp/vault_ct.log \
+	  | grep -E "(Testing |TEST COMPLETE|FAILED|ERROR|failed of|Updating )"; \
+	  CT_EXIT=$${PIPESTATUS[0]}; \
+	  [ $$CT_EXIT -ne 0 ] && { echo "--- ct_run failed, full output: ---"; cat /tmp/vault_ct.log; exit $$CT_EXIT; } || true
 	@COVERDATA=$$(ls -t _build/test/logs/ct_run.*/all.coverdata 2>/dev/null | head -1); \
 	  [ -n "$$COVERDATA" ] && escript scripts/print_coverage.escript "$$COVERDATA" \
 	    | grep -v "^Analysis includes" | grep -v "^\[\"" || true
