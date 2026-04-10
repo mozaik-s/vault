@@ -14,8 +14,7 @@
   get_vault/1,
   update_vault/2,
   delete_vault/1,
-  ejson_to_map/1,
-  normalize_permission/1
+  ejson_to_map/1
 ]).
 
 -define(SERVER_URL, "http://localhost:5984").
@@ -188,9 +187,3 @@ ejson_to_map(List) when is_list(List) ->
   [ejson_to_map(Item) || Item <- List];
 ejson_to_map(Value) ->
   Value.
-
-%% Convert binary permission values (from CouchDB) back to atoms
--spec normalize_permission(binary() | atom()) -> atom().
-normalize_permission(<<"owner">>) -> owner;
-normalize_permission(<<"read">>)  -> read;
-normalize_permission(Other) when is_atom(Other) -> Other.

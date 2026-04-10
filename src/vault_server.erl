@@ -28,7 +28,7 @@
   vault_id    => VaultId,
   owner_id    => OwnerId,
   shards      => #{},
-  permissions => #{OwnerId => owner},
+  permissions => #{OwnerId => <<"owner">>},
   audit_trail => [],
   created_at  => Now,
   updated_at  => Now
@@ -53,7 +53,7 @@ init({VaultId, OwnerId}) ->
   {ok, State, ?INACTIVITY_TIMEOUT}.
 
 handle_call({grant_access, UserId}, _From, #{permissions := Permissions} = State) ->
-  NewPermissions = Permissions#{UserId => read},
+  NewPermissions = Permissions#{UserId => <<"read">>},
   UpdatedState = State#{
     permissions => NewPermissions,
     updated_at  => erlang:system_time(millisecond)
@@ -128,14 +128,14 @@ code_change(_OldVsn, State, _Extra) ->
 %% ===================================================================
 
 check_permission(CallerId, write, Permissions) ->
-  case maps:get(CallerId, Permissions, none) of
-    owner -> ok;
-    _     -> {error, unauthorized}
+  case maps:get(CallerId, Permissions, undefined) of
+    <<"owner">> -> ok;
+    _           -> {error, unauthorized}
   end;
 check_permission(CallerId, read, Permissions) ->
-  case maps:get(CallerId, Permissions, none) of
-    none -> {error, unauthorized};
-    _    -> ok
+  case maps:get(CallerId, Permissions, undefined) of
+    undefined -> {error, unauthorized};
+    _         -> ok
   end.
 
 %% Restore vault state from CouchDB, or create fresh state if not found/unavailable
@@ -150,45 +150,18 @@ restore_or_create(VaultId, OwnerId, Now) ->
       ?DEFAULT_STATE(VaultId, OwnerId, Now)
   end.
 
-%% Convert a CouchDB vault doc back to in-memory state map
+%% Convert a CouchDB vault doc back to in-memory state map (no shards — loaded on demand)
 restore_state(VaultId, Doc) ->
   State = vault_db:ejson_to_map(Doc),
-  RawPerms = maps:get(<<"permissions">>, State, #{}),
-  Permissions = maps:map(fun(_UserId, Role) ->
-    vault_db:normalize_permission(Role)
-  end, RawPerms),
-  Shards = restore_shards(VaultId),
-  State#{
+  #{
     vault_id    => VaultId,
-    permissions => Permissions,
-    shards      => Shards
+    owner_id    => maps:get(<<"owner_id">>,    State, undefined),
+    shards      => #{},
+    permissions => maps:get(<<"permissions">>, State, #{}),
+    audit_trail => maps:get(<<"audit_trail">>, State, []),
+    created_at  => maps:get(<<"created_at">>,  State, erlang:system_time(millisecond)),
+    updated_at  => maps:get(<<"updated_at">>,  State, erlang:system_time(millisecond))
   }.
-
-%% Load all persisted shards for this vault from CouchDB
-restore_shards(VaultId) ->
-  case vault_shards:get_all_shards_for_vault(VaultId) of
-    {ok, Docs} ->
-      lists:foldl(fun(Doc, Acc) ->
-        ShardMap = vault_db:ejson_to_map(Doc),
-        DocId    = maps:get(<<"_id">>, ShardMap, undefined),
-        Blob     = maps:get(<<"data">>, ShardMap, undefined),
-        case {DocId, Blob} of
-          {undefined, _} -> Acc;
-          {_, undefined} -> Acc;
-          _ ->
-            ShardId = extract_shard_id(VaultId, DocId),
-            Acc#{ShardId => Blob}
-        end
-      end, #{}, Docs);
-    {error, Reason} ->
-      logger:warning("Could not restore shards for vault ~p: ~p", [VaultId, Reason]),
-      #{}
-  end.
-
-%% Strip the "shard:VaultId:" prefix to recover the ShardId
-extract_shard_id(VaultId, DocId) ->
-  PrefixLen = byte_size(<<"shard:">>) + byte_size(VaultId) + 1,
-  binary:part(DocId, PrefixLen, byte_size(DocId) - PrefixLen).
 
 %% Persist a shard to CouchDB (best-effort — errors are logged, not propagated)
 persist_shard(VaultId, ShardId, EncryptedBlob) ->

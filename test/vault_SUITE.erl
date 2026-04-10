@@ -129,7 +129,7 @@ test_grant_shard_access(_Config) ->
   vault:store_shard(VaultPid, <<"shard_c">>, <<"data_c">>, <<"user_4">>),
   {ok, granted} = vault:grant_access(VaultPid, <<"user_5">>),
   {ok, Perms} = vault:get_vault_permissions(VaultPid),
-  read = maps:get(<<"user_5">>, Perms),
+  <<"read">> = maps:get(<<"user_5">>, Perms),
   ok.
 
 test_revoke_shard_access(_Config) ->
