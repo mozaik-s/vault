@@ -45,6 +45,11 @@ jobs:
       - name: Fetch and compile dependencies
         run: mix deps.get && mix deps.compile
 
+      - name: Install elvis
+        run: |
+          mix escript.install --force hex elvis
+          echo "$HOME/.mix/escripts" >> $GITHUB_PATH
+
       - name: Compile
         run: make compile
 
