@@ -24,7 +24,8 @@
   test_revoke_shard_access/1,
   test_unauthorized_get_shard/1,
   test_unauthorized_store_shard/1,
-  test_revoke_removes_access/1
+  test_revoke_removes_access/1,
+  test_shard_survives_restart/1
 ]).
 
 %% ===================================================================
@@ -45,6 +46,7 @@
 -spec test_unauthorized_get_shard(list()) -> ok.
 -spec test_unauthorized_store_shard(list()) -> ok.
 -spec test_revoke_removes_access(list()) -> ok.
+-spec test_shard_survives_restart(list()) -> ok.
 
 %% ===================================================================
 %% Suite callbacks
@@ -60,7 +62,8 @@ all() ->
     test_revoke_shard_access,
     test_unauthorized_get_shard,
     test_unauthorized_store_shard,
-    test_revoke_removes_access
+    test_revoke_removes_access,
+    test_shard_survives_restart
   ].
 
 init_per_suite(Config) ->
@@ -74,6 +77,11 @@ init_per_suite(Config) ->
 end_per_suite(_Config) ->
   ok.
 
+init_per_testcase(test_shard_survives_restart, Config) ->
+  case is_couchdb_available() of
+    true  -> Config;
+    false -> {skip, "CouchDB not available"}
+  end;
 init_per_testcase(_Case, Config) ->
   Config.
 
@@ -153,3 +161,25 @@ test_revoke_removes_access(_Config) ->
   vault:revoke_access(VaultPid, <<"dave">>),
   {error, unauthorized} = vault:get_shard(VaultPid, <<"shard_f">>, <<"dave">>),
   ok.
+
+test_shard_survives_restart(_Config) ->
+  VaultId  = <<"vault_persist_9">>,
+  OwnerId  = <<"user_persist_9">>,
+  ShardId  = <<"shard_persist_9">>,
+  Blob     = <<"persistent_data_xyz">>,
+  {ok, Pid1} = vault:start_link(VaultId, OwnerId),
+  {ok, ShardId} = vault:store_shard(Pid1, ShardId, Blob, OwnerId),
+  ok = gen_server:stop(Pid1),
+  {ok, Pid2} = vault:start_link(VaultId, OwnerId),
+  {ok, Blob} = vault:get_shard(Pid2, ShardId, OwnerId),
+  ok.
+
+%% ===================================================================
+%% Internal helpers
+%% ===================================================================
+
+is_couchdb_available() ->
+  case gen_tcp:connect("localhost", 5984, [], 1000) of
+    {ok, Sock} -> gen_tcp:close(Sock), true;
+    _          -> false
+  end.

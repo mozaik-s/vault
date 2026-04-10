@@ -49,7 +49,8 @@ start_link(VaultId, OwnerId) ->
 
 init({VaultId, OwnerId}) ->
   Now = erlang:system_time(millisecond),
-  {ok, ?DEFAULT_STATE(VaultId, OwnerId, Now), ?INACTIVITY_TIMEOUT}.
+  State = restore_or_create(VaultId, OwnerId, Now),
+  {ok, State, ?INACTIVITY_TIMEOUT}.
 
 handle_call({grant_access, UserId}, _From, #{permissions := Permissions} = State) ->
   NewPermissions = Permissions#{UserId => read},
@@ -68,9 +69,10 @@ handle_call({revoke_access, UserId}, _From, #{permissions := Permissions} = Stat
   {reply, {ok, revoked}, UpdatedState, ?INACTIVITY_TIMEOUT};
 
 handle_call({store_shard, ShardId, EncryptedBlob, CallerId}, _From,
-            #{permissions := Permissions, shards := Shards} = State) ->
+            #{vault_id := VaultId, permissions := Permissions, shards := Shards} = State) ->
   case check_permission(CallerId, write, Permissions) of
     ok ->
+      persist_shard(VaultId, ShardId, EncryptedBlob),
       UpdatedState = State#{
         shards     => Shards#{ShardId => EncryptedBlob},
         updated_at => erlang:system_time(millisecond)
@@ -106,27 +108,16 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
   {noreply, State, ?INACTIVITY_TIMEOUT}.
 
-%% Timeout: save state to DB and terminate
+%% Timeout: save metadata to DB and terminate
 handle_info(timeout, #{vault_id := VaultId} = State) ->
-  case vault_db:store_vault(VaultId, State) of
-    {ok, _} ->
-      logger:info("Vault ~p saved to DB before timeout", [VaultId]);
-    {error, Reason} ->
-      logger:error("Failed to save vault ~p to DB: ~p", [VaultId, Reason])
-  end,
+  save_metadata(VaultId, State),
   {stop, normal, State};
 
 handle_info(_Info, State) ->
   {noreply, State, ?INACTIVITY_TIMEOUT}.
 
 terminate(_Reason, #{vault_id := VaultId} = State) ->
-  % Ensure state is saved to CouchDB before terminating (in case not saved via timeout)
-  case vault_db:store_vault(VaultId, State) of
-    {ok, _} ->
-      logger:info("Vault ~p saved to DB on termination", [VaultId]);
-    {error, Reason} ->
-      logger:error("Failed to save vault ~p to DB on termination: ~p", [VaultId, Reason])
-  end,
+  save_metadata(VaultId, State),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -145,4 +136,75 @@ check_permission(CallerId, read, Permissions) ->
   case maps:get(CallerId, Permissions, none) of
     none -> {error, unauthorized};
     _    -> ok
+  end.
+
+%% Restore vault state from CouchDB, or create fresh state if not found/unavailable
+restore_or_create(VaultId, OwnerId, Now) ->
+  case vault_db:get_vault(VaultId) of
+    {ok, Doc} ->
+      restore_state(VaultId, Doc);
+    {error, not_found} ->
+      ?DEFAULT_STATE(VaultId, OwnerId, Now);
+    {error, Reason} ->
+      logger:warning("Could not restore vault ~p from DB: ~p — starting fresh", [VaultId, Reason]),
+      ?DEFAULT_STATE(VaultId, OwnerId, Now)
+  end.
+
+%% Convert a CouchDB vault doc back to in-memory state map
+restore_state(VaultId, Doc) ->
+  State = vault_db:ejson_to_map(Doc),
+  RawPerms = maps:get(<<"permissions">>, State, #{}),
+  Permissions = maps:map(fun(_UserId, Role) ->
+    vault_db:normalize_permission(Role)
+  end, RawPerms),
+  Shards = restore_shards(VaultId),
+  State#{
+    vault_id    => VaultId,
+    permissions => Permissions,
+    shards      => Shards
+  }.
+
+%% Load all persisted shards for this vault from CouchDB
+restore_shards(VaultId) ->
+  case vault_shards:get_all_shards_for_vault(VaultId) of
+    {ok, Docs} ->
+      lists:foldl(fun(Doc, Acc) ->
+        ShardMap = vault_db:ejson_to_map(Doc),
+        DocId    = maps:get(<<"_id">>, ShardMap, undefined),
+        Blob     = maps:get(<<"data">>, ShardMap, undefined),
+        case {DocId, Blob} of
+          {undefined, _} -> Acc;
+          {_, undefined} -> Acc;
+          _ ->
+            ShardId = extract_shard_id(VaultId, DocId),
+            Acc#{ShardId => Blob}
+        end
+      end, #{}, Docs);
+    {error, Reason} ->
+      logger:warning("Could not restore shards for vault ~p: ~p", [VaultId, Reason]),
+      #{}
+  end.
+
+%% Strip the "shard:VaultId:" prefix to recover the ShardId
+extract_shard_id(VaultId, DocId) ->
+  PrefixLen = byte_size(<<"shard:">>) + byte_size(VaultId) + 1,
+  binary:part(DocId, PrefixLen, byte_size(DocId) - PrefixLen).
+
+%% Persist a shard to CouchDB (best-effort — errors are logged, not propagated)
+persist_shard(VaultId, ShardId, EncryptedBlob) ->
+  case vault_shards:store_shard(VaultId, ShardId, #{<<"data">> => EncryptedBlob}) of
+    {ok, _} ->
+      ok;
+    {error, Reason} ->
+      logger:error("Failed to persist shard ~p:~p — ~p", [VaultId, ShardId, Reason])
+  end.
+
+%% Save vault metadata (without shards) to CouchDB — shards are persisted individually
+save_metadata(VaultId, State) ->
+  Metadata = maps:remove(shards, State),
+  case vault_db:store_vault(VaultId, Metadata) of
+    {ok, _} ->
+      logger:info("Vault ~p metadata saved to DB", [VaultId]);
+    {error, Reason} ->
+      logger:error("Failed to save vault ~p metadata: ~p", [VaultId, Reason])
   end.
