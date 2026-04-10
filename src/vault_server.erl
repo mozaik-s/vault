@@ -24,6 +24,16 @@
 
 -define(INACTIVITY_TIMEOUT, 300000).  % 5 minutes in milliseconds
 
+-define(DEFAULT_STATE(VaultId, OwnerId, Now), #{
+  vault_id    => VaultId,
+  owner_id    => OwnerId,
+  shards      => #{},
+  permissions => #{OwnerId => owner},
+  audit_trail => [],
+  created_at  => Now,
+  updated_at  => Now
+}).
+
 %% ===================================================================
 %% Public API
 %% ===================================================================
@@ -31,33 +41,22 @@
 %% @doc Start a vault server process with the given vault_id and owner_id
 -spec start_link(binary(), binary()) -> {ok, pid()} | {error, term()}.
 start_link(VaultId, OwnerId) ->
-  gen_server:start_link(?MODULE, #{vault_id => VaultId, owner => OwnerId}, []).
+  gen_server:start_link(?MODULE, {VaultId, OwnerId}, []).
 
 %% ===================================================================
 %% gen_server callbacks
 %% ===================================================================
 
-init(Options) ->
-  VaultId = maps:get(vault_id, Options),
-  OwnerId = maps:get(owner, Options),
+init({VaultId, OwnerId}) ->
   Now = erlang:system_time(millisecond),
-  State = #{
-    vault_id => VaultId,
-    owner_id => OwnerId,
-    shards => #{},
-    permissions => #{OwnerId => owner},
-    audit_trail => [],
-    created_at => Now,
-    updated_at => Now
-  },
-  {ok, State, ?INACTIVITY_TIMEOUT}.
+  {ok, ?DEFAULT_STATE(VaultId, OwnerId, Now), ?INACTIVITY_TIMEOUT}.
 
 handle_call({grant_access, UserId}, _From, State) ->
   Permissions = maps:get(permissions, State),
   NewPermissions = Permissions#{UserId => read},
   UpdatedState = State#{
     permissions => NewPermissions,
-    updated_at => erlang:system_time(millisecond)
+    updated_at  => erlang:system_time(millisecond)
   },
   {reply, {ok, granted}, UpdatedState, ?INACTIVITY_TIMEOUT};
 
@@ -66,18 +65,16 @@ handle_call({revoke_access, UserId}, _From, State) ->
   NewPermissions = maps:remove(UserId, Permissions),
   UpdatedState = State#{
     permissions => NewPermissions,
-    updated_at => erlang:system_time(millisecond)
+    updated_at  => erlang:system_time(millisecond)
   },
   {reply, {ok, revoked}, UpdatedState, ?INACTIVITY_TIMEOUT};
 
 handle_call({store_shard, ShardId, EncryptedBlob, CallerId}, _From, State) ->
-  Permissions = maps:get(permissions, State),
-  case check_permission(CallerId, write, Permissions) of
+  case check_permission(CallerId, write, maps:get(permissions, State)) of
     ok ->
-      Shards = maps:get(shards, State),
-      NewShards = Shards#{ShardId => EncryptedBlob},
+      NewShards = (maps:get(shards, State))#{ShardId => EncryptedBlob},
       UpdatedState = State#{
-        shards => NewShards,
+        shards     => NewShards,
         updated_at => erlang:system_time(millisecond)
       },
       {reply, {ok, ShardId}, UpdatedState, ?INACTIVITY_TIMEOUT};
@@ -86,11 +83,9 @@ handle_call({store_shard, ShardId, EncryptedBlob, CallerId}, _From, State) ->
   end;
 
 handle_call({get_shard, ShardId, CallerId}, _From, State) ->
-  Permissions = maps:get(permissions, State),
-  case check_permission(CallerId, read, Permissions) of
+  case check_permission(CallerId, read, maps:get(permissions, State)) of
     ok ->
-      Shards = maps:get(shards, State),
-      case maps:find(ShardId, Shards) of
+      case maps:find(ShardId, maps:get(shards, State)) of
         {ok, EncryptedBlob} ->
           {reply, {ok, EncryptedBlob}, State, ?INACTIVITY_TIMEOUT};
         error ->
@@ -101,13 +96,11 @@ handle_call({get_shard, ShardId, CallerId}, _From, State) ->
   end;
 
 handle_call(list_shards, _From, State) ->
-  Shards = maps:get(shards, State),
-  ShardIds = maps:keys(Shards),
+  ShardIds = maps:keys(maps:get(shards, State)),
   {reply, {ok, ShardIds}, State, ?INACTIVITY_TIMEOUT};
 
 handle_call(get_vault_permissions, _From, State) ->
-  Permissions = maps:get(permissions, State),
-  {reply, {ok, Permissions}, State, ?INACTIVITY_TIMEOUT};
+  {reply, {ok, maps:get(permissions, State)}, State, ?INACTIVITY_TIMEOUT};
 
 handle_call(_Request, _From, State) ->
   {reply, {error, unknown_call}, State, ?INACTIVITY_TIMEOUT}.
