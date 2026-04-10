@@ -67,7 +67,8 @@ handle_call({revoke_access, UserId}, _From, #{permissions := Permissions} = Stat
   },
   {reply, {ok, revoked}, UpdatedState, ?INACTIVITY_TIMEOUT};
 
-handle_call({store_shard, ShardId, EncryptedBlob, CallerId}, _From, #{permissions := Permissions, shards := Shards} = State) ->
+handle_call({store_shard, ShardId, EncryptedBlob, CallerId}, _From,
+            #{permissions := Permissions, shards := Shards} = State) ->
   case check_permission(CallerId, write, Permissions) of
     ok ->
       UpdatedState = State#{
@@ -79,7 +80,8 @@ handle_call({store_shard, ShardId, EncryptedBlob, CallerId}, _From, #{permission
       {reply, {error, unauthorized}, State, ?INACTIVITY_TIMEOUT}
   end;
 
-handle_call({get_shard, ShardId, CallerId}, _From, #{permissions := Permissions, shards := Shards} = State) ->
+handle_call({get_shard, ShardId, CallerId}, _From,
+            #{permissions := Permissions, shards := Shards} = State) ->
   case check_permission(CallerId, read, Permissions) of
     ok ->
       case maps:find(ShardId, Shards) of
