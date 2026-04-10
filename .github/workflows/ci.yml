@@ -1,0 +1,65 @@
+name: CI
+
+on:
+  pull_request:
+    branches: [dev, main]
+  push:
+    branches: [dev]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    services:
+      couchdb:
+        image: couchdb:3.3
+        ports:
+          - 5984:5984
+        env:
+          COUCHDB_USER: admin
+          COUCHDB_PASSWORD: password
+        options: >-
+          --health-cmd "curl -f http://localhost:5984/"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Erlang/OTP and Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: "27"
+          elixir-version: "1.17"
+
+      - name: Cache dependencies
+        uses: actions/cache@v4
+        with:
+          path: |
+            deps
+            _build/dev/lib
+          key: deps-${{ hashFiles('mix.lock') }}
+          restore-keys: deps-
+
+      - name: Fetch and compile dependencies
+        run: mix deps.get && mix deps.compile
+
+      - name: Compile
+        run: make compile
+
+      - name: Lint
+        run: make lint
+
+      - name: Cache Dialyzer PLT
+        uses: actions/cache@v4
+        with:
+          path: .dialyzer.plt
+          key: plt-otp27-${{ hashFiles('_build/dev/lib/vault/ebin/*.beam') }}
+          restore-keys: plt-otp27-
+
+      - name: Dialyzer
+        run: make dialyzer
+
+      - name: Test
+        run: make test
