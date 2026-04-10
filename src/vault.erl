@@ -12,7 +12,7 @@
   revoke_access/3,
   store_shard/4,
   get_shard/3,
-  list_shards/1,
+  get_all_shards/2,
   get_vault_permissions/1
 ]).
 
@@ -45,10 +45,10 @@ store_shard(VaultPid, ShardId, EncryptedBlob, CallerId) ->
 get_shard(VaultPid, ShardId, CallerId) ->
   gen_server:call(VaultPid, {get_shard, ShardId, CallerId}).
 
-%% @doc List all shard IDs in vault
--spec list_shards(pid()) -> {ok, list()} | {error, term()}.
-list_shards(VaultPid) ->
-  gen_server:call(VaultPid, list_shards).
+%% @doc Get all shards for the vault as a map of #{ShardId => Blob}
+-spec get_all_shards(pid(), binary()) -> {ok, map()} | {error, term()}.
+get_all_shards(VaultPid, CallerId) ->
+  gen_server:call(VaultPid, {get_all_shards, CallerId}).
 
 %% @doc Get all vault-level permissions
 -spec get_vault_permissions(pid()) -> {ok, map()} | {error, term()}.
