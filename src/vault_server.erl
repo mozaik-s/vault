@@ -24,6 +24,16 @@
 
 -define(INACTIVITY_TIMEOUT, 300000).  % 5 minutes in milliseconds
 
+-define(DEFAULT_STATE(VaultId, OwnerId, Now), #{
+  vault_id    => VaultId,
+  owner_id    => OwnerId,
+  shards      => #{},
+  permissions => #{OwnerId => owner},
+  audit_trail => [],
+  created_at  => Now,
+  updated_at  => Now
+}).
+
 %% ===================================================================
 %% Public API
 %% ===================================================================
@@ -39,57 +49,53 @@ start_link(VaultId, OwnerId) ->
 
 init({VaultId, OwnerId}) ->
   Now = erlang:system_time(millisecond),
-  State = #{
-    vault_id => VaultId,
-    owner_id => OwnerId,
-    shards => #{},
-    permissions => #{},
-    audit_trail => [],
-    created_at => Now,
-    updated_at => Now
-  },
-  {ok, State, ?INACTIVITY_TIMEOUT}.
+  {ok, ?DEFAULT_STATE(VaultId, OwnerId, Now), ?INACTIVITY_TIMEOUT}.
 
-handle_call({grant_access, UserId, AccessLevel}, _From, State) ->
-  % Grant user access to entire vault (not per-shard)
-  % AccessLevel: view, upload, admin
-  % TODO: Implement vault-level permission storage
-  UpdatedState = State#{updated_at => erlang:system_time(millisecond)},
+handle_call({grant_access, UserId}, _From, #{permissions := Permissions} = State) ->
+  NewPermissions = Permissions#{UserId => read},
+  UpdatedState = State#{
+    permissions => NewPermissions,
+    updated_at  => erlang:system_time(millisecond)
+  },
   {reply, {ok, granted}, UpdatedState, ?INACTIVITY_TIMEOUT};
 
-handle_call({revoke_access, UserId}, _From, State) ->
-  % Revoke user's access to entire vault
-  % TODO: Implement vault-level revocation
-  UpdatedState = State#{updated_at => erlang:system_time(millisecond)},
+handle_call({revoke_access, UserId}, _From, #{permissions := Permissions} = State) ->
+  NewPermissions = maps:remove(UserId, Permissions),
+  UpdatedState = State#{
+    permissions => NewPermissions,
+    updated_at  => erlang:system_time(millisecond)
+  },
   {reply, {ok, revoked}, UpdatedState, ?INACTIVITY_TIMEOUT};
 
-handle_call({store_shard, ShardId, EncryptedBlob}, _From, State) ->
-  % Placeholder: store encrypted shard
-  % TODO: Implement shard hashing and storage
-  Shards = maps:get(shards, State),
-  NewShards = Shards#{ShardId => EncryptedBlob},
-  UpdatedState = State#{
-    shards => NewShards,
-    updated_at => erlang:system_time(millisecond)
-  },
-  {reply, {ok, ShardId}, UpdatedState, ?INACTIVITY_TIMEOUT};
-
-handle_call({get_shard, ShardId}, _From, State) ->
-  Shards = maps:get(shards, State),
-  case maps:find(ShardId, Shards) of
-    {ok, EncryptedBlob} ->
-      {reply, {ok, EncryptedBlob}, State, ?INACTIVITY_TIMEOUT};
-    error ->
-      {reply, {error, shard_not_found}, State, ?INACTIVITY_TIMEOUT}
+handle_call({store_shard, ShardId, EncryptedBlob, CallerId}, _From, #{permissions := Permissions, shards := Shards} = State) ->
+  case check_permission(CallerId, write, Permissions) of
+    ok ->
+      UpdatedState = State#{
+        shards     => Shards#{ShardId => EncryptedBlob},
+        updated_at => erlang:system_time(millisecond)
+      },
+      {reply, {ok, ShardId}, UpdatedState, ?INACTIVITY_TIMEOUT};
+    {error, unauthorized} ->
+      {reply, {error, unauthorized}, State, ?INACTIVITY_TIMEOUT}
   end;
 
-handle_call(list_shards, _From, State) ->
-  Shards = maps:get(shards, State),
-  ShardIds = maps:keys(Shards),
-  {reply, {ok, ShardIds}, State, ?INACTIVITY_TIMEOUT};
+handle_call({get_shard, ShardId, CallerId}, _From, #{permissions := Permissions, shards := Shards} = State) ->
+  case check_permission(CallerId, read, Permissions) of
+    ok ->
+      case maps:find(ShardId, Shards) of
+        {ok, EncryptedBlob} ->
+          {reply, {ok, EncryptedBlob}, State, ?INACTIVITY_TIMEOUT};
+        error ->
+          {reply, {error, shard_not_found}, State, ?INACTIVITY_TIMEOUT}
+      end;
+    {error, unauthorized} ->
+      {reply, {error, unauthorized}, State, ?INACTIVITY_TIMEOUT}
+  end;
 
-handle_call(get_vault_permissions, _From, State) ->
-  Permissions = maps:get(permissions, State),
+handle_call(list_shards, _From, #{shards := Shards} = State) ->
+  {reply, {ok, maps:keys(Shards)}, State, ?INACTIVITY_TIMEOUT};
+
+handle_call(get_vault_permissions, _From, #{permissions := Permissions} = State) ->
   {reply, {ok, Permissions}, State, ?INACTIVITY_TIMEOUT};
 
 handle_call(_Request, _From, State) ->
@@ -99,8 +105,7 @@ handle_cast(_Request, State) ->
   {noreply, State, ?INACTIVITY_TIMEOUT}.
 
 %% Timeout: save state to DB and terminate
-handle_info(timeout, State) ->
-  VaultId = maps:get(vault_id, State),
+handle_info(timeout, #{vault_id := VaultId} = State) ->
   case vault_db:store_vault(VaultId, State) of
     {ok, _} ->
       logger:info("Vault ~p saved to DB before timeout", [VaultId]);
@@ -112,8 +117,7 @@ handle_info(timeout, State) ->
 handle_info(_Info, State) ->
   {noreply, State, ?INACTIVITY_TIMEOUT}.
 
-terminate(_Reason, State) ->
-  VaultId = maps:get(vault_id, State),
+terminate(_Reason, #{vault_id := VaultId} = State) ->
   % Ensure state is saved to CouchDB before terminating (in case not saved via timeout)
   case vault_db:store_vault(VaultId, State) of
     {ok, _} ->
@@ -125,3 +129,18 @@ terminate(_Reason, State) ->
 
 code_change(_OldVsn, State, _Extra) ->
   {ok, State}.
+
+%% ===================================================================
+%% Internal functions
+%% ===================================================================
+
+check_permission(CallerId, write, Permissions) ->
+  case maps:get(CallerId, Permissions, none) of
+    owner -> ok;
+    _     -> {error, unauthorized}
+  end;
+check_permission(CallerId, read, Permissions) ->
+  case maps:get(CallerId, Permissions, none) of
+    none -> {error, unauthorized};
+    _    -> ok
+  end.
