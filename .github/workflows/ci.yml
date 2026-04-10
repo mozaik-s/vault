@@ -47,8 +47,9 @@ jobs:
 
       - name: Install elvis
         run: |
-          cd /tmp && mix escript.install --force hex elvis
-          echo "$HOME/.mix/escripts" >> $GITHUB_PATH
+          git clone --depth 1 --branch 5.0.2 https://github.com/inaka/elvis /tmp/elvis-src
+          cd /tmp/elvis-src && rebar3 escriptize
+          sudo mv /tmp/elvis-src/_build/default/bin/elvis /usr/local/bin/elvis
 
       - name: Compile
         run: make compile
