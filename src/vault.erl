@@ -8,8 +8,8 @@
 %% Public API
 -export([
   start_link/2,
-  grant_access/2,
-  revoke_access/2,
+  grant_access/3,
+  revoke_access/3,
   store_shard/4,
   get_shard/3,
   list_shards/1,
@@ -25,15 +25,15 @@
 start_link(VaultId, OwnerId) ->
   vault_server:start_link(VaultId, OwnerId).
 
-%% @doc Grant user read access to vault
--spec grant_access(pid(), binary()) -> {ok, granted} | {error, term()}.
-grant_access(VaultPid, UserId) ->
-  gen_server:call(VaultPid, {grant_access, UserId}).
+%% @doc Grant user read access to vault — only the owner may call this
+-spec grant_access(pid(), binary(), binary()) -> {ok, granted} | {error, term()}.
+grant_access(VaultPid, UserId, CallerId) ->
+  gen_server:call(VaultPid, {grant_access, CallerId, UserId}).
 
-%% @doc Revoke user access to entire vault
--spec revoke_access(pid(), binary()) -> {ok, revoked} | {error, term()}.
-revoke_access(VaultPid, UserId) ->
-  gen_server:call(VaultPid, {revoke_access, UserId}).
+%% @doc Revoke user access to entire vault — only the owner may call this
+-spec revoke_access(pid(), binary(), binary()) -> {ok, revoked} | {error, term()}.
+revoke_access(VaultPid, UserId, CallerId) ->
+  gen_server:call(VaultPid, {revoke_access, CallerId, UserId}).
 
 %% @doc Store encrypted shard in vault
 -spec store_shard(pid(), binary(), binary(), binary()) -> {ok, binary()} | {error, term()}.
