@@ -27,8 +27,7 @@
 -define(DEFAULT_STATE(VaultId, OwnerId, Now), #{
   vault_id    => VaultId,
   owner_id    => OwnerId,
-  shards      => #{},
-  permissions => #{OwnerId => owner},
+  permissions => #{hash_id(OwnerId) => <<"owner">>},
   audit_trail => [],
   created_at  => Now,
   updated_at  => Now
@@ -49,53 +48,66 @@ start_link(VaultId, OwnerId) ->
 
 init({VaultId, OwnerId}) ->
   Now = erlang:system_time(millisecond),
-  {ok, ?DEFAULT_STATE(VaultId, OwnerId, Now), ?INACTIVITY_TIMEOUT}.
+  State = restore_or_create(VaultId, OwnerId, Now),
+  {ok, State, ?INACTIVITY_TIMEOUT}.
 
-handle_call({grant_access, UserId}, _From, #{permissions := Permissions} = State) ->
-  NewPermissions = Permissions#{UserId => read},
-  UpdatedState = State#{
-    permissions => NewPermissions,
-    updated_at  => erlang:system_time(millisecond)
-  },
-  {reply, {ok, granted}, UpdatedState, ?INACTIVITY_TIMEOUT};
-
-handle_call({revoke_access, UserId}, _From, #{permissions := Permissions} = State) ->
-  NewPermissions = maps:remove(UserId, Permissions),
-  UpdatedState = State#{
-    permissions => NewPermissions,
-    updated_at  => erlang:system_time(millisecond)
-  },
-  {reply, {ok, revoked}, UpdatedState, ?INACTIVITY_TIMEOUT};
-
-handle_call({store_shard, ShardId, EncryptedBlob, CallerId}, _From,
-            #{permissions := Permissions, shards := Shards} = State) ->
-  case check_permission(CallerId, write, Permissions) of
+handle_call({grant_access, CallerId, UserId}, _From, #{permissions := Permissions} = State) ->
+  case can_write(CallerId, Permissions) of
     ok ->
+      NewPermissions = Permissions#{hash_id(UserId) => <<"read">>},
       UpdatedState = State#{
-        shards     => Shards#{ShardId => EncryptedBlob},
-        updated_at => erlang:system_time(millisecond)
+        permissions => NewPermissions,
+        updated_at  => erlang:system_time(millisecond)
       },
-      {reply, {ok, ShardId}, UpdatedState, ?INACTIVITY_TIMEOUT};
+      {reply, {ok, granted}, UpdatedState, ?INACTIVITY_TIMEOUT};
     {error, unauthorized} ->
       {reply, {error, unauthorized}, State, ?INACTIVITY_TIMEOUT}
   end;
 
-handle_call({get_shard, ShardId, CallerId}, _From,
-            #{permissions := Permissions, shards := Shards} = State) ->
-  case check_permission(CallerId, read, Permissions) of
+handle_call({revoke_access, CallerId, UserId}, _From, #{permissions := Permissions} = State) ->
+  case can_write(CallerId, Permissions) of
     ok ->
-      case maps:find(ShardId, Shards) of
-        {ok, EncryptedBlob} ->
-          {reply, {ok, EncryptedBlob}, State, ?INACTIVITY_TIMEOUT};
-        error ->
-          {reply, {error, shard_not_found}, State, ?INACTIVITY_TIMEOUT}
+      NewPermissions = maps:remove(hash_id(UserId), Permissions),
+      UpdatedState = State#{
+        permissions => NewPermissions,
+        updated_at  => erlang:system_time(millisecond)
+      },
+      {reply, {ok, revoked}, UpdatedState, ?INACTIVITY_TIMEOUT};
+    {error, unauthorized} ->
+      {reply, {error, unauthorized}, State, ?INACTIVITY_TIMEOUT}
+  end;
+
+handle_call({store_shard, ShardId, EncryptedBlob, CallerId}, _From,
+            #{vault_id := VaultId, permissions := Permissions} = State) ->
+  case can_write(CallerId, Permissions) of
+    ok ->
+      case vault_shards:store_shard(VaultId, ShardId, #{<<"data">> => EncryptedBlob}) of
+        {ok, _} ->
+          {reply, {ok, ShardId},
+           State#{updated_at => erlang:system_time(millisecond)},
+           ?INACTIVITY_TIMEOUT};
+        {error, Reason} ->
+          {reply, {error, Reason}, State, ?INACTIVITY_TIMEOUT}
       end;
     {error, unauthorized} ->
       {reply, {error, unauthorized}, State, ?INACTIVITY_TIMEOUT}
   end;
 
-handle_call(list_shards, _From, #{shards := Shards} = State) ->
-  {reply, {ok, maps:keys(Shards)}, State, ?INACTIVITY_TIMEOUT};
+handle_call({get_shard, ShardId, CallerId}, _From,
+            #{vault_id := VaultId, permissions := Permissions} = State) ->
+  Reply = case can_read(CallerId, Permissions) of
+    ok              -> fetch_shard(VaultId, ShardId);
+    {error, _} = E  -> E
+  end,
+  {reply, Reply, State, ?INACTIVITY_TIMEOUT};
+
+handle_call({get_all_shards, CallerId}, _From,
+            #{vault_id := VaultId, permissions := Permissions} = State) ->
+  Reply = case can_read(CallerId, Permissions) of
+    ok             -> fetch_all_shards(VaultId);
+    {error, _} = E -> E
+  end,
+  {reply, Reply, State, ?INACTIVITY_TIMEOUT};
 
 handle_call(get_vault_permissions, _From, #{permissions := Permissions} = State) ->
   {reply, {ok, Permissions}, State, ?INACTIVITY_TIMEOUT};
@@ -106,27 +118,16 @@ handle_call(_Request, _From, State) ->
 handle_cast(_Request, State) ->
   {noreply, State, ?INACTIVITY_TIMEOUT}.
 
-%% Timeout: save state to DB and terminate
+%% Timeout: save metadata to DB and terminate
 handle_info(timeout, #{vault_id := VaultId} = State) ->
-  case vault_db:store_vault(VaultId, State) of
-    {ok, _} ->
-      logger:info("Vault ~p saved to DB before timeout", [VaultId]);
-    {error, Reason} ->
-      logger:error("Failed to save vault ~p to DB: ~p", [VaultId, Reason])
-  end,
+  save_metadata(VaultId, State),
   {stop, normal, State};
 
 handle_info(_Info, State) ->
   {noreply, State, ?INACTIVITY_TIMEOUT}.
 
 terminate(_Reason, #{vault_id := VaultId} = State) ->
-  % Ensure state is saved to CouchDB before terminating (in case not saved via timeout)
-  case vault_db:store_vault(VaultId, State) of
-    {ok, _} ->
-      logger:info("Vault ~p saved to DB on termination", [VaultId]);
-    {error, Reason} ->
-      logger:error("Failed to save vault ~p to DB on termination: ~p", [VaultId, Reason])
-  end,
+  save_metadata(VaultId, State),
   ok.
 
 code_change(_OldVsn, State, _Extra) ->
@@ -136,13 +137,84 @@ code_change(_OldVsn, State, _Extra) ->
 %% Internal functions
 %% ===================================================================
 
-check_permission(CallerId, write, Permissions) ->
-  case maps:get(CallerId, Permissions, none) of
-    owner -> ok;
-    _     -> {error, unauthorized}
-  end;
-check_permission(CallerId, read, Permissions) ->
-  case maps:get(CallerId, Permissions, none) of
-    none -> {error, unauthorized};
-    _    -> ok
+-define(HASH_ALGORITHM, sha256).
+
+hash_id(UserId) ->
+  crypto:hash(?HASH_ALGORITHM, UserId).
+
+can_write(CallerId, Permissions) ->
+  HashedId = hash_id(CallerId),
+  case Permissions of
+    #{HashedId := <<"owner">>} -> ok;
+    _                          -> {error, unauthorized}
+  end.
+
+can_read(CallerId, Permissions) ->
+  HashedId = hash_id(CallerId),
+  case Permissions of
+    #{HashedId := _} -> ok;
+    _                -> {error, unauthorized}
+  end.
+
+fetch_shard(VaultId, ShardId) ->
+  case vault_shards:get_shard(VaultId, ShardId) of
+    {ok, Doc} ->
+      #{<<"data">> := Blob} = vault_db:ejson_to_map(Doc),
+      {ok, Blob};
+    {error, not_found} ->
+      {error, shard_not_found};
+    {error, _} = E ->
+      E
+  end.
+
+fetch_all_shards(VaultId) ->
+  case vault_shards:get_all_shards_for_vault(VaultId) of
+    {ok, Docs} ->
+      Shards = #{extract_shard_id(VaultId, maps:get(<<"_id">>, M)) =>
+                   maps:get(<<"data">>, M)
+                 || Doc <- Docs,
+                    M <- [vault_db:ejson_to_map(Doc)]},
+      {ok, Shards};
+    {error, _} = E ->
+      E
+  end.
+
+%% Restore vault state from CouchDB, or create fresh state if not found/unavailable
+restore_or_create(VaultId, OwnerId, Now) ->
+  case vault_db:get_vault(VaultId) of
+    {ok, Doc} ->
+      restore_state(VaultId, Doc);
+    {error, not_found} ->
+      ?DEFAULT_STATE(VaultId, OwnerId, Now);
+    {error, Reason} ->
+      logger:warning("Could not restore vault ~p from DB: ~p — starting fresh", [VaultId, Reason]),
+      ?DEFAULT_STATE(VaultId, OwnerId, Now)
+  end.
+
+%% Convert a CouchDB vault doc back to in-memory state map
+restore_state(VaultId, Doc) ->
+  State = vault_db:ejson_to_map(Doc),
+  #{
+    vault_id    => VaultId,
+    owner_id    => maps:get(<<"owner_id">>,    State, undefined),
+    permissions => maps:get(<<"permissions">>, State, #{}),
+    audit_trail => maps:get(<<"audit_trail">>, State, []),
+    created_at  => maps:get(<<"created_at">>,  State, erlang:system_time(millisecond)),
+    updated_at  => maps:get(<<"updated_at">>,  State, erlang:system_time(millisecond))
+  }.
+
+%% Strip the "shard:VaultId:" prefix to recover the ShardId
+extract_shard_id(VaultId, DocId) ->
+  PrefixLen = byte_size(<<"shard:">>) + byte_size(VaultId) + 1,
+  binary:part(DocId, PrefixLen, byte_size(DocId) - PrefixLen).
+
+%% Save vault metadata to CouchDB
+save_metadata(VaultId, State) ->
+  case vault_db:store_vault(VaultId, State) of
+    {ok, _} ->
+      logger:info("Vault ~p metadata saved to DB", [VaultId]),
+      ok;
+    {error, Reason} ->
+      logger:error("Failed to save vault ~p metadata: ~p", [VaultId, Reason]),
+      {error, Reason}
   end.

@@ -19,12 +19,14 @@
   test_vault_start_link/1,
   test_store_shard/1,
   test_get_shard/1,
-  test_list_shards/1,
+  test_get_all_shards/1,
   test_grant_shard_access/1,
   test_revoke_shard_access/1,
   test_unauthorized_get_shard/1,
   test_unauthorized_store_shard/1,
-  test_revoke_removes_access/1
+  test_unauthorized_grant_access/1,
+  test_revoke_removes_access/1,
+  test_shard_survives_restart/1
 ]).
 
 %% ===================================================================
@@ -39,12 +41,14 @@
 -spec test_vault_start_link(list()) -> ok.
 -spec test_store_shard(list()) -> ok.
 -spec test_get_shard(list()) -> ok.
--spec test_list_shards(list()) -> ok.
+-spec test_get_all_shards(list()) -> ok.
 -spec test_grant_shard_access(list()) -> ok.
 -spec test_revoke_shard_access(list()) -> ok.
 -spec test_unauthorized_get_shard(list()) -> ok.
 -spec test_unauthorized_store_shard(list()) -> ok.
+-spec test_unauthorized_grant_access(list()) -> ok.
 -spec test_revoke_removes_access(list()) -> ok.
+-spec test_shard_survives_restart(list()) -> ok.
 
 %% ===================================================================
 %% Suite callbacks
@@ -55,16 +59,17 @@ all() ->
     test_vault_start_link,
     test_store_shard,
     test_get_shard,
-    test_list_shards,
+    test_get_all_shards,
     test_grant_shard_access,
     test_revoke_shard_access,
     test_unauthorized_get_shard,
     test_unauthorized_store_shard,
-    test_revoke_removes_access
+    test_unauthorized_grant_access,
+    test_revoke_removes_access,
+    test_shard_survives_restart
   ].
 
 init_per_suite(Config) ->
-  % Try to start application, but don't fail if not available
   case application:ensure_started(vault) of
     ok -> ok;
     {error, _} -> ok
@@ -108,29 +113,31 @@ test_get_shard(_Config) ->
   EncryptedBlob = RetrievedBlob,
   ok.
 
-test_list_shards(_Config) ->
+test_get_all_shards(_Config) ->
   {ok, VaultPid} = vault:start_link(<<"vault_3">>, <<"user_3">>),
   vault:store_shard(VaultPid, <<"shard_a">>, <<"data_a">>, <<"user_3">>),
   vault:store_shard(VaultPid, <<"shard_b">>, <<"data_b">>, <<"user_3">>),
-  {ok, ShardIds} = vault:list_shards(VaultPid),
-  2 = length(ShardIds),
+  {ok, Shards} = vault:get_all_shards(VaultPid, <<"user_3">>),
+  2 = map_size(Shards),
+  <<"data_a">> = maps:get(<<"shard_a">>, Shards),
+  <<"data_b">> = maps:get(<<"shard_b">>, Shards),
   ok.
 
 test_grant_shard_access(_Config) ->
   {ok, VaultPid} = vault:start_link(<<"vault_4">>, <<"user_4">>),
   vault:store_shard(VaultPid, <<"shard_c">>, <<"data_c">>, <<"user_4">>),
-  {ok, granted} = vault:grant_access(VaultPid, <<"user_5">>),
+  {ok, granted} = vault:grant_access(VaultPid, <<"user_5">>, <<"user_4">>),
   {ok, Perms} = vault:get_vault_permissions(VaultPid),
-  read = maps:get(<<"user_5">>, Perms),
+  <<"read">> = maps:get(crypto:hash(sha256, <<"user_5">>), Perms),
   ok.
 
 test_revoke_shard_access(_Config) ->
   {ok, VaultPid} = vault:start_link(<<"vault_5">>, <<"user_5">>),
   vault:store_shard(VaultPid, <<"shard_d">>, <<"data_d">>, <<"user_5">>),
-  vault:grant_access(VaultPid, <<"user_6">>),
-  {ok, revoked} = vault:revoke_access(VaultPid, <<"user_6">>),
+  vault:grant_access(VaultPid, <<"user_6">>, <<"user_5">>),
+  {ok, revoked} = vault:revoke_access(VaultPid, <<"user_6">>, <<"user_5">>),
   {ok, Perms} = vault:get_vault_permissions(VaultPid),
-  false = maps:is_key(<<"user_6">>, Perms),
+  false = maps:is_key(crypto:hash(sha256, <<"user_6">>), Perms),
   ok.
 
 test_unauthorized_get_shard(_Config) ->
@@ -141,15 +148,32 @@ test_unauthorized_get_shard(_Config) ->
 
 test_unauthorized_store_shard(_Config) ->
   {ok, VaultPid} = vault:start_link(<<"vault_7">>, <<"alice">>),
-  vault:grant_access(VaultPid, <<"bob">>),
+  vault:grant_access(VaultPid, <<"bob">>, <<"alice">>),
   {error, unauthorized} = vault:store_shard(VaultPid, <<"s2">>, <<"data">>, <<"bob">>),
+  ok.
+
+test_unauthorized_grant_access(_Config) ->
+  {ok, VaultPid} = vault:start_link(<<"vault_9">>, <<"alice">>),
+  {error, unauthorized} = vault:grant_access(VaultPid, <<"eve">>, <<"bob">>),
   ok.
 
 test_revoke_removes_access(_Config) ->
   {ok, VaultPid} = vault:start_link(<<"vault_8">>, <<"alice">>),
-  vault:grant_access(VaultPid, <<"dave">>),
+  vault:grant_access(VaultPid, <<"dave">>, <<"alice">>),
   vault:store_shard(VaultPid, <<"shard_f">>, <<"payload">>, <<"alice">>),
   {ok, <<"payload">>} = vault:get_shard(VaultPid, <<"shard_f">>, <<"dave">>),
-  vault:revoke_access(VaultPid, <<"dave">>),
+  vault:revoke_access(VaultPid, <<"dave">>, <<"alice">>),
   {error, unauthorized} = vault:get_shard(VaultPid, <<"shard_f">>, <<"dave">>),
+  ok.
+
+test_shard_survives_restart(_Config) ->
+  VaultId  = <<"vault_persist_9">>,
+  OwnerId  = <<"user_persist_9">>,
+  ShardId  = <<"shard_persist_9">>,
+  Blob     = <<"persistent_data_xyz">>,
+  {ok, Pid1} = vault:start_link(VaultId, OwnerId),
+  {ok, ShardId} = vault:store_shard(Pid1, ShardId, Blob, OwnerId),
+  ok = gen_server:stop(Pid1),
+  {ok, Pid2} = vault:start_link(VaultId, OwnerId),
+  {ok, Blob} = vault:get_shard(Pid2, ShardId, OwnerId),
   ok.

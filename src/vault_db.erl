@@ -13,7 +13,8 @@
   store_vault/2,
   get_vault/1,
   update_vault/2,
-  delete_vault/1
+  delete_vault/1,
+  ejson_to_map/1
 ]).
 
 -define(SERVER_URL, "http://localhost:5984").
@@ -177,3 +178,12 @@ map_to_ejson(Value) ->
 
 key_to_binary(K) when is_atom(K)   -> atom_to_binary(K, utf8);
 key_to_binary(K) when is_binary(K) -> K.
+
+%% Convert couchbeam ejson format ({[{K,V}]}) back to Erlang map
+-spec ejson_to_map(term()) -> map() | list() | term().
+ejson_to_map({Props}) when is_list(Props) ->
+  maps:from_list([{K, ejson_to_map(V)} || {K, V} <- Props]);
+ejson_to_map(List) when is_list(List) ->
+  [ejson_to_map(Item) || Item <- List];
+ejson_to_map(Value) ->
+  Value.
