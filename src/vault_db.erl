@@ -17,9 +17,6 @@
     ejson_to_map/1
 ]).
 
--define(DEFAULT_SERVER_URL, "http://localhost:5984").
--define(DEFAULT_DB_NAME, <<"mozaik_vault">>).
--define(DEFAULT_CONNECTION_TIMEOUT, 5000).
 -define(VAULT_PREFIX, <<"vault:">>).
 
 %% ===================================================================
@@ -116,28 +113,31 @@ get_connection() ->
 -spec server_url() -> string().
 server_url() ->
     case os:getenv("VAULT_DB_URL") of
-        false -> ?DEFAULT_SERVER_URL;
+        false -> application:get_env(vault, couchdb_url, "http://localhost:5984");
         Url -> Url
     end.
 
 -spec db_name() -> binary().
 db_name() ->
     case os:getenv("VAULT_DB_NAME") of
-        false -> ?DEFAULT_DB_NAME;
-        Name -> list_to_binary(Name)
+        false ->
+            Default = application:get_env(vault, couchdb_db_name, "mozaik_vault"),
+            list_to_binary(Default);
+        Name ->
+            list_to_binary(Name)
     end.
 
 -spec connection_timeout() -> pos_integer().
 connection_timeout() ->
     case os:getenv("VAULT_DB_TIMEOUT") of
         false ->
-            ?DEFAULT_CONNECTION_TIMEOUT;
+            application:get_env(vault, couchdb_timeout, 5000);
         Val ->
             try list_to_integer(Val) of
                 N when N > 0 -> N;
-                _ -> ?DEFAULT_CONNECTION_TIMEOUT
+                _ -> application:get_env(vault, couchdb_timeout, 5000)
             catch
-                _:_ -> ?DEFAULT_CONNECTION_TIMEOUT
+                _:_ -> application:get_env(vault, couchdb_timeout, 5000)
             end
     end.
 
