@@ -26,7 +26,8 @@
     test_unauthorized_store_shard/1,
     test_unauthorized_grant_access/1,
     test_revoke_removes_access/1,
-    test_shard_survives_restart/1
+    test_shard_survives_restart/1,
+    test_tampered_shard_detected/1
 ]).
 
 %% ===================================================================
@@ -49,6 +50,7 @@
 -spec test_unauthorized_grant_access(list()) -> ok.
 -spec test_revoke_removes_access(list()) -> ok.
 -spec test_shard_survives_restart(list()) -> ok.
+-spec test_tampered_shard_detected(list()) -> ok.
 
 %% ===================================================================
 %% Suite callbacks
@@ -66,7 +68,8 @@ all() ->
         test_unauthorized_store_shard,
         test_unauthorized_grant_access,
         test_revoke_removes_access,
-        test_shard_survives_restart
+        test_shard_survives_restart,
+        test_tampered_shard_detected
     ].
 
 init_per_suite(Config) ->
@@ -176,4 +179,22 @@ test_shard_survives_restart(_Config) ->
     ok = gen_server:stop(Pid1),
     {ok, Pid2} = vault:start_link(VaultId, OwnerId),
     {ok, Blob} = vault:get_shard(Pid2, ShardId, OwnerId),
+    ok.
+
+test_tampered_shard_detected(_Config) ->
+    VaultId = <<"vault_tamper_10">>,
+    OwnerId = <<"user_tamper_10">>,
+    ShardId = <<"shard_tamper_10">>,
+    Blob = <<"original_data">>,
+    {ok, Pid} = vault:start_link(VaultId, OwnerId),
+    {ok, ShardId} = vault:store_shard(Pid, ShardId, Blob, OwnerId),
+    %% Tamper the shard directly in CouchDB
+    DocId = <<"shard:", VaultId/binary, ":", ShardId/binary>>,
+    {ok, Doc} = vault_db:get_doc(DocId),
+    TamperedData = #{<<"data">> => <<"corrupted">>},
+    {ok, _} = vault_db:store_doc(DocId, TamperedData),
+    %% Ignore the raw Doc variable to avoid unused warning
+    _ = Doc,
+    %% Retrieve should fail integrity check
+    {error, integrity_check_failed} = vault:get_shard(Pid, ShardId, OwnerId),
     ok.

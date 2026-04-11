@@ -19,7 +19,14 @@
 store_shard(VaultId, ShardId, ShardData) ->
     logger:debug("Storing shard ~p:~p", [VaultId, ShardId]),
     DocId = shard_doc_id(VaultId, ShardId),
-    Doc = ShardData#{<<"_id">> => DocId, <<"type">> => <<"shard">>, <<"vault_id">> => VaultId},
+    Blob = maps:get(<<"data">>, ShardData),
+    Hash = hash_blob(Blob),
+    Doc = ShardData#{
+        <<"_id">> => DocId,
+        <<"type">> => <<"shard">>,
+        <<"vault_id">> => VaultId,
+        <<"hash">> => Hash
+    },
     case vault_db:store_doc(DocId, Doc) of
         {ok, Saved} ->
             logger:debug("Shard ~p:~p stored successfully", [VaultId, ShardId]),
@@ -29,18 +36,31 @@ store_shard(VaultId, ShardId, ShardData) ->
             Error
     end.
 
-%% @doc Retrieve shard data
+%% @doc Retrieve shard data and verify integrity
 -spec get_shard(binary(), binary()) -> {ok, term()} | {error, term()}.
 get_shard(VaultId, ShardId) ->
     logger:debug("Retrieving shard ~p:~p", [VaultId, ShardId]),
-    vault_db:get_doc(shard_doc_id(VaultId, ShardId)).
+    case vault_db:get_doc(shard_doc_id(VaultId, ShardId)) of
+        {ok, Doc} ->
+            verify_integrity(Doc);
+        {error, _} = E ->
+            E
+    end.
 
-%% @doc Retrieve all shards belonging to a vault using prefix range query
+%% @doc Retrieve all shards belonging to a vault, verifying each
 -spec get_all_shards_for_vault(binary()) -> {ok, list()} | {error, term()}.
 get_all_shards_for_vault(VaultId) ->
     logger:debug("Retrieving all shards for vault ~p", [VaultId]),
     Prefix = <<(?SHARD_PREFIX)/binary, VaultId/binary, ":">>,
-    vault_db:list_docs_by_prefix(Prefix, <<Prefix/binary, "~">>).
+    case vault_db:list_docs_by_prefix(Prefix, <<Prefix/binary, "~">>) of
+        {ok, Docs} ->
+            case verify_all(Docs) of
+                {ok, Verified} -> {ok, Verified};
+                {error, _} = E -> E
+            end;
+        {error, _} = E ->
+            E
+    end.
 
 %% @doc Delete a single shard
 -spec delete_shard(binary(), binary()) -> ok | {error, term()}.
@@ -61,3 +81,36 @@ delete_shard(VaultId, ShardId) ->
 
 shard_doc_id(VaultId, ShardId) ->
     <<(?SHARD_PREFIX)/binary, VaultId/binary, ":", ShardId/binary>>.
+
+hash_blob(Blob) ->
+    bin_to_hex(crypto:hash(sha256, Blob)).
+
+bin_to_hex(Bin) ->
+    <<<<(hex_char(H)), (hex_char(L))>> || <<N>> <= Bin, H <- [N bsr 4], L <- [N band 16#0F]>>.
+
+hex_char(N) when N < 10 -> $0 + N;
+hex_char(N) -> $a + N - 10.
+
+verify_integrity(Doc) ->
+    Map = vault_db:ejson_to_map(Doc),
+    case maps:find(<<"hash">>, Map) of
+        {ok, StoredHash} ->
+            Blob = maps:get(<<"data">>, Map),
+            case hash_blob(Blob) =:= StoredHash of
+                true -> {ok, Doc};
+                false -> {error, integrity_check_failed}
+            end;
+        error ->
+            {ok, Doc}
+    end.
+
+verify_all(Docs) ->
+    verify_all(Docs, []).
+
+verify_all([], Acc) ->
+    {ok, lists:reverse(Acc)};
+verify_all([Doc | Rest], Acc) ->
+    case verify_integrity(Doc) of
+        {ok, Verified} -> verify_all(Rest, [Verified | Acc]);
+        {error, _} = E -> E
+    end.
