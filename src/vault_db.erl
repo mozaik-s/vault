@@ -17,9 +17,9 @@
     ejson_to_map/1
 ]).
 
--define(SERVER_URL, "http://localhost:5984").
--define(DB_NAME, <<"mozaik_vault">>).
--define(CONNECTION_TIMEOUT, 5000).
+-define(DEFAULT_SERVER_URL, "http://localhost:5984").
+-define(DEFAULT_DB_NAME, <<"mozaik_vault">>).
+-define(DEFAULT_CONNECTION_TIMEOUT, 5000).
 -define(VAULT_PREFIX, <<"vault:">>).
 
 %% ===================================================================
@@ -103,14 +103,42 @@ delete_vault(VaultId) ->
 -spec get_connection() -> {ok, term()} | {error, term()}.
 get_connection() ->
     try
-        Server = couchbeam:server_connection(?SERVER_URL, [
-            {connection_timeout, ?CONNECTION_TIMEOUT}
+        Server = couchbeam:server_connection(server_url(), [
+            {connection_timeout, connection_timeout()}
         ]),
-        couchbeam:open_db(Server, ?DB_NAME)
+        couchbeam:open_db(Server, db_name())
     catch
         Type:Reason ->
             logger:error("CouchDB connection exception: ~p:~p", [Type, Reason]),
             {error, {Type, Reason}}
+    end.
+
+-spec server_url() -> string().
+server_url() ->
+    case os:getenv("VAULT_DB_URL") of
+        false -> ?DEFAULT_SERVER_URL;
+        Url -> Url
+    end.
+
+-spec db_name() -> binary().
+db_name() ->
+    case os:getenv("VAULT_DB_NAME") of
+        false -> ?DEFAULT_DB_NAME;
+        Name -> list_to_binary(Name)
+    end.
+
+-spec connection_timeout() -> pos_integer().
+connection_timeout() ->
+    case os:getenv("VAULT_DB_TIMEOUT") of
+        false ->
+            ?DEFAULT_CONNECTION_TIMEOUT;
+        Val ->
+            try list_to_integer(Val) of
+                N when N > 0 -> N;
+                _ -> ?DEFAULT_CONNECTION_TIMEOUT
+            catch
+                _:_ -> ?DEFAULT_CONNECTION_TIMEOUT
+            end
     end.
 
 store_doc_impl(Conn, DocId, Data) ->
