@@ -5,30 +5,8 @@
 
 -include_lib("common_test/include/ct.hrl").
 
-%% Suite exports
--export([
-    all/0,
-    init_per_suite/1,
-    end_per_suite/1,
-    init_per_testcase/2,
-    end_per_testcase/2
-]).
-
-%% Test cases
--export([
-    test_log_and_list_roundtrip/1,
-    test_list_empty_vault/1,
-    test_audit_from_vault_operations/1
-]).
-
--spec all() -> [atom()].
--spec init_per_suite(list()) -> list().
--spec end_per_suite(list()) -> ok.
--spec init_per_testcase(atom(), list()) -> list().
--spec end_per_testcase(atom(), list()) -> ok.
--spec test_log_and_list_roundtrip(list()) -> ok.
--spec test_list_empty_vault(list()) -> ok.
--spec test_audit_from_vault_operations(list()) -> ok.
+-compile(export_all).
+-compile(nowarn_export_all).
 
 %% ===================================================================
 %% Suite callbacks
@@ -68,10 +46,8 @@ test_log_and_list_roundtrip(_Config) ->
     {ok, Events} = vault_audit:list_audit_log(VaultId),
     2 = length(Events),
     [First, Second] = Events,
-    <<"store_shard">> = maps:get(action, First),
-    <<"user_a">> = maps:get(user_id, First),
-    <<"get_shard">> = maps:get(action, Second),
-    <<"user_b">> = maps:get(user_id, Second),
+    #{action := <<"store_shard">>, user_id := <<"user_a">>} = First,
+    #{action := <<"get_shard">>, user_id := <<"user_b">>} = Second,
     ok.
 
 test_list_empty_vault(_Config) ->
@@ -86,7 +62,7 @@ test_audit_from_vault_operations(_Config) ->
     {ok, _} = vault:get_shard(Pid, <<"shard_a">>, OwnerId),
     {ok, Events} = vault:list_audit_log(VaultId),
     true = length(Events) >= 2,
-    Actions = [maps:get(action, E) || E <- Events],
+    Actions = [Action || #{action := Action} <- Events],
     true = lists:member(<<"store_shard">>, Actions),
     true = lists:member(<<"get_shard">>, Actions),
     ok.

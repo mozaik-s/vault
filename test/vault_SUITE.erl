@@ -5,52 +5,8 @@
 
 -include_lib("common_test/include/ct.hrl").
 
-%% Suite exports
--export([
-    all/0,
-    init_per_suite/1,
-    end_per_suite/1,
-    init_per_testcase/2,
-    end_per_testcase/2
-]).
-
-%% Test cases
--export([
-    test_vault_start_link/1,
-    test_store_shard/1,
-    test_get_shard/1,
-    test_get_all_shards/1,
-    test_grant_shard_access/1,
-    test_revoke_shard_access/1,
-    test_unauthorized_get_shard/1,
-    test_unauthorized_store_shard/1,
-    test_unauthorized_grant_access/1,
-    test_revoke_removes_access/1,
-    test_shard_survives_restart/1,
-    test_tampered_shard_detected/1
-]).
-
-%% ===================================================================
-%% Type specs
-%% ===================================================================
-
--spec all() -> [atom()].
--spec init_per_suite(list()) -> list().
--spec end_per_suite(list()) -> ok.
--spec init_per_testcase(atom(), list()) -> list().
--spec end_per_testcase(atom(), list()) -> ok.
--spec test_vault_start_link(list()) -> ok.
--spec test_store_shard(list()) -> ok.
--spec test_get_shard(list()) -> ok.
--spec test_get_all_shards(list()) -> ok.
--spec test_grant_shard_access(list()) -> ok.
--spec test_revoke_shard_access(list()) -> ok.
--spec test_unauthorized_get_shard(list()) -> ok.
--spec test_unauthorized_store_shard(list()) -> ok.
--spec test_unauthorized_grant_access(list()) -> ok.
--spec test_revoke_removes_access(list()) -> ok.
--spec test_shard_survives_restart(list()) -> ok.
--spec test_tampered_shard_detected(list()) -> ok.
+-compile(export_all).
+-compile(nowarn_export_all).
 
 %% ===================================================================
 %% Suite callbacks

@@ -228,13 +228,18 @@ restore_or_create(VaultId, OwnerId, Now) ->
 
 %% Convert a CouchDB vault doc back to in-memory state map
 restore_state(VaultId, Doc) ->
-    State = vault_db:ejson_to_map(Doc),
+    #{
+        <<"owner_id">> := OwnerId,
+        <<"permissions">> := Permissions,
+        <<"created_at">> := CreatedAt,
+        <<"updated_at">> := UpdatedAt
+    } = vault_db:ejson_to_map(Doc),
     #{
         vault_id => VaultId,
-        owner_id => maps:get(<<"owner_id">>, State, undefined),
-        permissions => maps:get(<<"permissions">>, State, #{}),
-        created_at => maps:get(<<"created_at">>, State, erlang:system_time(millisecond)),
-        updated_at => maps:get(<<"updated_at">>, State, erlang:system_time(millisecond))
+        owner_id => OwnerId,
+        permissions => Permissions,
+        created_at => CreatedAt,
+        updated_at => UpdatedAt
     }.
 
 %% Strip the "shard:VaultId:" prefix to recover the ShardId

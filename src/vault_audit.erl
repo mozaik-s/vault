@@ -56,10 +56,15 @@ audit_doc_id(VaultId, Timestamp) ->
     TsBin = integer_to_binary(Timestamp),
     <<(?AUDIT_PREFIX)/binary, VaultId/binary, ":", TsBin/binary>>.
 
-audit_doc_to_event(Map) ->
+audit_doc_to_event(#{
+    <<"vault_id">> := VaultId,
+    <<"user_id">> := UserId,
+    <<"action">> := Action,
+    <<"timestamp">> := Timestamp
+}) ->
     #{
-        vault_id => maps:get(<<"vault_id">>, Map),
-        user_id => maps:get(<<"user_id">>, Map),
-        action => maps:get(<<"action">>, Map),
-        timestamp => maps:get(<<"timestamp">>, Map)
+        vault_id => VaultId,
+        user_id => UserId,
+        action => Action,
+        timestamp => Timestamp
     }.
