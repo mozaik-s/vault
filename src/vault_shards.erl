@@ -23,7 +23,6 @@ store_shard(VaultId, ShardId, ShardData) ->
     Hash = hash_blob(Blob),
     Doc = ShardData#{
         <<"_id">> => DocId,
-        <<"type">> => <<"shard">>,
         <<"vault_id">> => VaultId,
         <<"hash">> => Hash
     },

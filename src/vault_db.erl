@@ -71,7 +71,7 @@ list_docs_by_prefix(StartKey, EndKey) ->
 -spec store_vault(binary(), map()) -> {ok, term()} | {error, term()}.
 store_vault(VaultId, VaultState) ->
     logger:debug("Storing vault ~p to CouchDB", [VaultId]),
-    store_doc(vault_doc_id(VaultId), VaultState#{<<"type">> => <<"vault">>}).
+    store_doc(vault_doc_id(VaultId), VaultState).
 
 %% @doc Retrieve vault state from CouchDB
 -spec get_vault(binary()) -> {ok, term()} | {error, term()}.
