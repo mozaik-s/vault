@@ -42,7 +42,7 @@ list_audit_log(VaultId) ->
     Prefix = <<(?AUDIT_PREFIX)/binary, VaultId/binary, ":">>,
     case vault_db:list_docs_by_prefix(Prefix, <<Prefix/binary, "~">>) of
         {ok, Docs} ->
-            Events = [audit_doc_to_event(vault_db:ejson_to_map(D)) || D <- Docs],
+            Events = [vault_db:ejson_to_map(D) || D <- Docs],
             {ok, Events};
         {error, _} = E ->
             E
@@ -55,13 +55,3 @@ list_audit_log(VaultId) ->
 audit_doc_id(VaultId, Timestamp) ->
     TsBin = integer_to_binary(Timestamp),
     <<(?AUDIT_PREFIX)/binary, VaultId/binary, ":", TsBin/binary>>.
-
-audit_doc_to_event(
-    #{
-        <<"vault_id">> := _,
-        <<"user_id">> := _,
-        <<"action">> := _,
-        <<"timestamp">> := _
-    } = Event
-) ->
-    Event.
