@@ -17,10 +17,10 @@
     ejson_to_map/1
 ]).
 
--define(SERVER_URL, "http://localhost:5984").
--define(DB_NAME, <<"mozaik_vault">>).
--define(CONNECTION_TIMEOUT, 5000).
 -define(VAULT_PREFIX, <<"vault:">>).
+-define(SERVER_URL, application:get_env(vault, couchdb_url, "http://localhost:5984")).
+-define(DB_NAME, list_to_binary(application:get_env(vault, couchdb_db_name, "mozaik_vault"))).
+-define(CONNECTION_TIMEOUT, application:get_env(vault, couchdb_timeout, 5000)).
 
 %% ===================================================================
 %% Generic DB Operations
