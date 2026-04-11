@@ -13,7 +13,8 @@
     store_shard/4,
     get_shard/3,
     get_all_shards/2,
-    get_vault_permissions/1
+    get_vault_permissions/1,
+    list_audit_log/1
 ]).
 
 %% ===================================================================
@@ -54,3 +55,8 @@ get_all_shards(VaultPid, CallerId) ->
 -spec get_vault_permissions(pid()) -> {ok, map()} | {error, term()}.
 get_vault_permissions(VaultPid) ->
     gen_server:call(VaultPid, get_vault_permissions).
+
+%% @doc Retrieve audit log for a vault
+-spec list_audit_log(binary()) -> {ok, list()} | {error, term()}.
+list_audit_log(VaultId) ->
+    vault_audit:list_audit_log(VaultId).

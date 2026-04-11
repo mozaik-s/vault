@@ -29,7 +29,6 @@
     vault_id => VaultId,
     owner_id => OwnerId,
     permissions => #{hash_id(OwnerId) => <<"owner">>},
-    audit_trail => [],
     created_at => Now,
     updated_at => Now
 }).
@@ -52,7 +51,11 @@ init({VaultId, OwnerId}) ->
     State = restore_or_create(VaultId, OwnerId, Now),
     {ok, State, ?INACTIVITY_TIMEOUT}.
 
-handle_call({grant_access, CallerId, UserId}, _From, #{permissions := Permissions} = State) ->
+handle_call(
+    {grant_access, CallerId, UserId},
+    _From,
+    #{vault_id := VaultId, permissions := Permissions} = State
+) ->
     case can_write(CallerId, Permissions) of
         ok ->
             NewPermissions = Permissions#{hash_id(UserId) => <<"read">>},
@@ -60,11 +63,18 @@ handle_call({grant_access, CallerId, UserId}, _From, #{permissions := Permission
                 permissions => NewPermissions,
                 updated_at => erlang:system_time(millisecond)
             },
+            vault_audit:log_access(
+                VaultId, CallerId, <<"grant_access">>, erlang:system_time(millisecond)
+            ),
             {reply, {ok, granted}, UpdatedState, ?INACTIVITY_TIMEOUT};
         {error, unauthorized} ->
             {reply, {error, unauthorized}, State, ?INACTIVITY_TIMEOUT}
     end;
-handle_call({revoke_access, CallerId, UserId}, _From, #{permissions := Permissions} = State) ->
+handle_call(
+    {revoke_access, CallerId, UserId},
+    _From,
+    #{vault_id := VaultId, permissions := Permissions} = State
+) ->
     case can_write(CallerId, Permissions) of
         ok ->
             NewPermissions = maps:remove(hash_id(UserId), Permissions),
@@ -72,6 +82,9 @@ handle_call({revoke_access, CallerId, UserId}, _From, #{permissions := Permissio
                 permissions => NewPermissions,
                 updated_at => erlang:system_time(millisecond)
             },
+            vault_audit:log_access(
+                VaultId, CallerId, <<"revoke_access">>, erlang:system_time(millisecond)
+            ),
             {reply, {ok, revoked}, UpdatedState, ?INACTIVITY_TIMEOUT};
         {error, unauthorized} ->
             {reply, {error, unauthorized}, State, ?INACTIVITY_TIMEOUT}
@@ -85,6 +98,9 @@ handle_call(
         ok ->
             case vault_shards:store_shard(VaultId, ShardId, #{<<"data">> => EncryptedBlob}) of
                 {ok, _} ->
+                    vault_audit:log_access(
+                        VaultId, CallerId, <<"store_shard">>, erlang:system_time(millisecond)
+                    ),
                     {reply, {ok, ShardId}, State#{updated_at => erlang:system_time(millisecond)},
                         ?INACTIVITY_TIMEOUT};
                 {error, Reason} ->
@@ -100,8 +116,13 @@ handle_call(
 ) ->
     Reply =
         case can_read(CallerId, Permissions) of
-            ok -> fetch_shard(VaultId, ShardId);
-            {error, _} = E -> E
+            ok ->
+                vault_audit:log_access(
+                    VaultId, CallerId, <<"get_shard">>, erlang:system_time(millisecond)
+                ),
+                fetch_shard(VaultId, ShardId);
+            {error, _} = E ->
+                E
         end,
     {reply, Reply, State, ?INACTIVITY_TIMEOUT};
 handle_call(
@@ -111,8 +132,13 @@ handle_call(
 ) ->
     Reply =
         case can_read(CallerId, Permissions) of
-            ok -> fetch_all_shards(VaultId);
-            {error, _} = E -> E
+            ok ->
+                vault_audit:log_access(
+                    VaultId, CallerId, <<"get_all_shards">>, erlang:system_time(millisecond)
+                ),
+                fetch_all_shards(VaultId);
+            {error, _} = E ->
+                E
         end,
     {reply, Reply, State, ?INACTIVITY_TIMEOUT};
 handle_call(get_vault_permissions, _From, #{permissions := Permissions} = State) ->
@@ -207,7 +233,6 @@ restore_state(VaultId, Doc) ->
         vault_id => VaultId,
         owner_id => maps:get(<<"owner_id">>, State, undefined),
         permissions => maps:get(<<"permissions">>, State, #{}),
-        audit_trail => maps:get(<<"audit_trail">>, State, []),
         created_at => maps:get(<<"created_at">>, State, erlang:system_time(millisecond)),
         updated_at => maps:get(<<"updated_at">>, State, erlang:system_time(millisecond))
     }.
