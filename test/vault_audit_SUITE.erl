@@ -46,8 +46,8 @@ test_log_and_list_roundtrip(_Config) ->
     {ok, Events} = vault_audit:list_audit_log(VaultId),
     2 = length(Events),
     [First, Second] = Events,
-    #{action := <<"store_shard">>, user_id := <<"user_a">>} = First,
-    #{action := <<"get_shard">>, user_id := <<"user_b">>} = Second,
+    #{<<"action">> := <<"store_shard">>, <<"user_id">> := <<"user_a">>} = First,
+    #{<<"action">> := <<"get_shard">>, <<"user_id">> := <<"user_b">>} = Second,
     ok.
 
 test_list_empty_vault(_Config) ->
@@ -62,7 +62,7 @@ test_audit_from_vault_operations(_Config) ->
     {ok, _} = vault:get_shard(Pid, <<"shard_a">>, OwnerId),
     {ok, Events} = vault:list_audit_log(VaultId),
     true = length(Events) >= 2,
-    Actions = [Action || #{action := Action} <- Events],
+    Actions = [Action || #{<<"action">> := Action} <- Events],
     true = lists:member(<<"store_shard">>, Actions),
     true = lists:member(<<"get_shard">>, Actions),
     ok.

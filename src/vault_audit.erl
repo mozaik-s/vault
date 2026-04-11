@@ -56,15 +56,12 @@ audit_doc_id(VaultId, Timestamp) ->
     TsBin = integer_to_binary(Timestamp),
     <<(?AUDIT_PREFIX)/binary, VaultId/binary, ":", TsBin/binary>>.
 
-audit_doc_to_event(#{
-    <<"vault_id">> := VaultId,
-    <<"user_id">> := UserId,
-    <<"action">> := Action,
-    <<"timestamp">> := Timestamp
-}) ->
+audit_doc_to_event(
     #{
-        vault_id => VaultId,
-        user_id => UserId,
-        action => Action,
-        timestamp => Timestamp
-    }.
+        <<"vault_id">> := _,
+        <<"user_id">> := _,
+        <<"action">> := _,
+        <<"timestamp">> := _
+    } = Event
+) ->
+    Event.
