@@ -26,12 +26,11 @@
 -define(INACTIVITY_TIMEOUT, 300000).
 
 -define(DEFAULT_STATE(VaultId, OwnerId, Now), #{
-    vault_id => VaultId,
-    owner_id => OwnerId,
-    permissions => #{hash_id(OwnerId) => <<"owner">>},
-    audit_trail => [],
-    created_at => Now,
-    updated_at => Now
+    <<"vault_id">> => VaultId,
+    <<"owner_id">> => OwnerId,
+    <<"permissions">> => #{hash_id(OwnerId) => <<"owner">>},
+    <<"created_at">> => Now,
+    <<"updated_at">> => Now
 }).
 
 %% ===================================================================
@@ -52,26 +51,40 @@ init({VaultId, OwnerId}) ->
     State = restore_or_create(VaultId, OwnerId, Now),
     {ok, State, ?INACTIVITY_TIMEOUT}.
 
-handle_call({grant_access, CallerId, UserId}, _From, #{permissions := Permissions} = State) ->
+handle_call(
+    {grant_access, CallerId, UserId},
+    _From,
+    #{<<"vault_id">> := VaultId, <<"permissions">> := Permissions} = State
+) ->
     case can_write(CallerId, Permissions) of
         ok ->
             NewPermissions = Permissions#{hash_id(UserId) => <<"read">>},
             UpdatedState = State#{
-                permissions => NewPermissions,
-                updated_at => erlang:system_time(millisecond)
+                <<"permissions">> => NewPermissions,
+                <<"updated_at">> => erlang:system_time(millisecond)
             },
+            vault_audit:log_access(
+                VaultId, CallerId, <<"grant_access">>, erlang:system_time(millisecond)
+            ),
             {reply, {ok, granted}, UpdatedState, ?INACTIVITY_TIMEOUT};
         {error, unauthorized} ->
             {reply, {error, unauthorized}, State, ?INACTIVITY_TIMEOUT}
     end;
-handle_call({revoke_access, CallerId, UserId}, _From, #{permissions := Permissions} = State) ->
+handle_call(
+    {revoke_access, CallerId, UserId},
+    _From,
+    #{<<"vault_id">> := VaultId, <<"permissions">> := Permissions} = State
+) ->
     case can_write(CallerId, Permissions) of
         ok ->
             NewPermissions = maps:remove(hash_id(UserId), Permissions),
             UpdatedState = State#{
-                permissions => NewPermissions,
-                updated_at => erlang:system_time(millisecond)
+                <<"permissions">> => NewPermissions,
+                <<"updated_at">> => erlang:system_time(millisecond)
             },
+            vault_audit:log_access(
+                VaultId, CallerId, <<"revoke_access">>, erlang:system_time(millisecond)
+            ),
             {reply, {ok, revoked}, UpdatedState, ?INACTIVITY_TIMEOUT};
         {error, unauthorized} ->
             {reply, {error, unauthorized}, State, ?INACTIVITY_TIMEOUT}
@@ -79,13 +92,17 @@ handle_call({revoke_access, CallerId, UserId}, _From, #{permissions := Permissio
 handle_call(
     {store_shard, ShardId, EncryptedBlob, CallerId},
     _From,
-    #{vault_id := VaultId, permissions := Permissions} = State
+    #{<<"vault_id">> := VaultId, <<"permissions">> := Permissions} = State
 ) ->
     case can_write(CallerId, Permissions) of
         ok ->
             case vault_shards:store_shard(VaultId, ShardId, #{<<"data">> => EncryptedBlob}) of
                 {ok, _} ->
-                    {reply, {ok, ShardId}, State#{updated_at => erlang:system_time(millisecond)},
+                    vault_audit:log_access(
+                        VaultId, CallerId, <<"store_shard">>, erlang:system_time(millisecond)
+                    ),
+                    {reply, {ok, ShardId},
+                        State#{<<"updated_at">> => erlang:system_time(millisecond)},
                         ?INACTIVITY_TIMEOUT};
                 {error, Reason} ->
                     {reply, {error, Reason}, State, ?INACTIVITY_TIMEOUT}
@@ -96,26 +113,36 @@ handle_call(
 handle_call(
     {get_shard, ShardId, CallerId},
     _From,
-    #{vault_id := VaultId, permissions := Permissions} = State
+    #{<<"vault_id">> := VaultId, <<"permissions">> := Permissions} = State
 ) ->
     Reply =
         case can_read(CallerId, Permissions) of
-            ok -> fetch_shard(VaultId, ShardId);
-            {error, _} = E -> E
+            ok ->
+                vault_audit:log_access(
+                    VaultId, CallerId, <<"get_shard">>, erlang:system_time(millisecond)
+                ),
+                fetch_shard(VaultId, ShardId);
+            {error, _} = E ->
+                E
         end,
     {reply, Reply, State, ?INACTIVITY_TIMEOUT};
 handle_call(
     {get_all_shards, CallerId},
     _From,
-    #{vault_id := VaultId, permissions := Permissions} = State
+    #{<<"vault_id">> := VaultId, <<"permissions">> := Permissions} = State
 ) ->
     Reply =
         case can_read(CallerId, Permissions) of
-            ok -> fetch_all_shards(VaultId);
-            {error, _} = E -> E
+            ok ->
+                vault_audit:log_access(
+                    VaultId, CallerId, <<"get_all_shards">>, erlang:system_time(millisecond)
+                ),
+                fetch_all_shards(VaultId);
+            {error, _} = E ->
+                E
         end,
     {reply, Reply, State, ?INACTIVITY_TIMEOUT};
-handle_call(get_vault_permissions, _From, #{permissions := Permissions} = State) ->
+handle_call(get_vault_permissions, _From, #{<<"permissions">> := Permissions} = State) ->
     {reply, {ok, Permissions}, State, ?INACTIVITY_TIMEOUT};
 handle_call(_Request, _From, State) ->
     {reply, {error, unknown_call}, State, ?INACTIVITY_TIMEOUT}.
@@ -124,13 +151,13 @@ handle_cast(_Request, State) ->
     {noreply, State, ?INACTIVITY_TIMEOUT}.
 
 %% Timeout: save metadata to DB and terminate
-handle_info(timeout, #{vault_id := VaultId} = State) ->
+handle_info(timeout, #{<<"vault_id">> := VaultId} = State) ->
     save_metadata(VaultId, State),
     {stop, normal, State};
 handle_info(_Info, State) ->
     {noreply, State, ?INACTIVITY_TIMEOUT}.
 
-terminate(_Reason, #{vault_id := VaultId} = State) ->
+terminate(_Reason, #{<<"vault_id">> := VaultId} = State) ->
     save_metadata(VaultId, State),
     ok.
 
@@ -176,10 +203,9 @@ fetch_all_shards(VaultId) ->
         {ok, Docs} ->
             Shards =
                 #{
-                    extract_shard_id(VaultId, maps:get(<<"_id">>, M)) =>
-                        maps:get(<<"data">>, M)
+                    extract_shard_id(VaultId, Id) => Data
                  || Doc <- Docs,
-                    M <- [vault_db:ejson_to_map(Doc)]
+                    #{<<"_id">> := Id, <<"data">> := Data} <- [vault_db:ejson_to_map(Doc)]
                 },
             {ok, Shards};
         {error, _} = E ->
@@ -190,7 +216,7 @@ fetch_all_shards(VaultId) ->
 restore_or_create(VaultId, OwnerId, Now) ->
     case vault_db:get_vault(VaultId) of
         {ok, Doc} ->
-            restore_state(VaultId, Doc);
+            restore_state(Doc);
         {error, not_found} ->
             ?DEFAULT_STATE(VaultId, OwnerId, Now);
         {error, Reason} ->
@@ -201,16 +227,8 @@ restore_or_create(VaultId, OwnerId, Now) ->
     end.
 
 %% Convert a CouchDB vault doc back to in-memory state map
-restore_state(VaultId, Doc) ->
-    State = vault_db:ejson_to_map(Doc),
-    #{
-        vault_id => VaultId,
-        owner_id => maps:get(<<"owner_id">>, State, undefined),
-        permissions => maps:get(<<"permissions">>, State, #{}),
-        audit_trail => maps:get(<<"audit_trail">>, State, []),
-        created_at => maps:get(<<"created_at">>, State, erlang:system_time(millisecond)),
-        updated_at => maps:get(<<"updated_at">>, State, erlang:system_time(millisecond))
-    }.
+restore_state(Doc) ->
+    vault_db:ejson_to_map(Doc).
 
 %% Strip the "shard:VaultId:" prefix to recover the ShardId
 extract_shard_id(VaultId, DocId) ->
