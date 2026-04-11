@@ -216,7 +216,7 @@ fetch_all_shards(VaultId) ->
 restore_or_create(VaultId, OwnerId, Now) ->
     case vault_db:get_vault(VaultId) of
         {ok, Doc} ->
-            restore_state(VaultId, Doc);
+            restore_state(Doc);
         {error, not_found} ->
             ?DEFAULT_STATE(VaultId, OwnerId, Now);
         {error, Reason} ->
@@ -227,14 +227,8 @@ restore_or_create(VaultId, OwnerId, Now) ->
     end.
 
 %% Convert a CouchDB vault doc back to in-memory state map
-restore_state(_VaultId, Doc) ->
-    #{
-        <<"owner_id">> := _,
-        <<"permissions">> := _,
-        <<"created_at">> := _,
-        <<"updated_at">> := _
-    } = State = vault_db:ejson_to_map(Doc),
-    State.
+restore_state(Doc) ->
+    vault_db:ejson_to_map(Doc).
 
 %% Strip the "shard:VaultId:" prefix to recover the ShardId
 extract_shard_id(VaultId, DocId) ->
