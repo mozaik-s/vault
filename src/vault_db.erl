@@ -18,6 +18,9 @@
 ]).
 
 -define(VAULT_PREFIX, <<"vault:">>).
+-define(SERVER_URL, application:get_env(vault, couchdb_url, "http://localhost:5984")).
+-define(DB_NAME, list_to_binary(application:get_env(vault, couchdb_db_name, "mozaik_vault"))).
+-define(CONNECTION_TIMEOUT, application:get_env(vault, couchdb_timeout, 5000)).
 
 %% ===================================================================
 %% Generic DB Operations
@@ -100,45 +103,14 @@ delete_vault(VaultId) ->
 -spec get_connection() -> {ok, term()} | {error, term()}.
 get_connection() ->
     try
-        Server = couchbeam:server_connection(server_url(), [
-            {connection_timeout, connection_timeout()}
+        Server = couchbeam:server_connection(?SERVER_URL, [
+            {connection_timeout, ?CONNECTION_TIMEOUT}
         ]),
-        couchbeam:open_db(Server, db_name())
+        couchbeam:open_db(Server, ?DB_NAME)
     catch
         Type:Reason ->
             logger:error("CouchDB connection exception: ~p:~p", [Type, Reason]),
             {error, {Type, Reason}}
-    end.
-
--spec server_url() -> string().
-server_url() ->
-    case os:getenv("VAULT_DB_URL") of
-        false -> application:get_env(vault, couchdb_url, "http://localhost:5984");
-        Url -> Url
-    end.
-
--spec db_name() -> binary().
-db_name() ->
-    case os:getenv("VAULT_DB_NAME") of
-        false ->
-            Default = application:get_env(vault, couchdb_db_name, "mozaik_vault"),
-            list_to_binary(Default);
-        Name ->
-            list_to_binary(Name)
-    end.
-
--spec connection_timeout() -> pos_integer().
-connection_timeout() ->
-    case os:getenv("VAULT_DB_TIMEOUT") of
-        false ->
-            application:get_env(vault, couchdb_timeout, 5000);
-        Val ->
-            try list_to_integer(Val) of
-                N when N > 0 -> N;
-                _ -> application:get_env(vault, couchdb_timeout, 5000)
-            catch
-                _:_ -> application:get_env(vault, couchdb_timeout, 5000)
-            end
     end.
 
 store_doc_impl(Conn, DocId, Data) ->
