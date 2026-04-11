@@ -1,50 +1,33 @@
 %%%-------------------------------------------------------------------
-%% @doc Common Test suite for vault_shards module
-%% Verifies module structure and API compliance
+%% @doc Common Test suite for vault_shards module (integration tests)
 %%%-------------------------------------------------------------------
 -module(vault_shards_SUITE).
 
 -include_lib("common_test/include/ct.hrl").
 
-%% Common Test callbacks
--export([
-    suite/0,
-    all/0,
-    init_per_suite/1,
-    end_per_suite/1,
-    init_per_testcase/2,
-    end_per_testcase/2
-]).
+-compile(export_all).
+-compile(nowarn_export_all).
 
-%% Test cases
--export([
-    test_module_exists/1,
-    test_module_exports/1
-]).
-
--spec suite() -> [tuple()].
--spec all() -> [atom()].
--spec init_per_suite(list()) -> list().
--spec end_per_suite(list()) -> ok.
--spec init_per_testcase(atom(), list()) -> list().
--spec end_per_testcase(atom(), list()) -> ok.
--spec test_module_exists(list()) -> ok.
--spec test_module_exports(list()) -> ok.
+%% ===================================================================
+%% Common Test Callbacks
+%% ===================================================================
 
 suite() -> [{timetrap, {seconds, 30}}].
 
 all() ->
     [
-        test_module_exists,
-        test_module_exports
+        test_store_and_get_roundtrip,
+        test_get_nonexistent_returns_not_found,
+        test_get_all_shards_for_vault,
+        test_delete_shard,
+        test_integrity_hash_stored
     ].
 
 init_per_suite(Config) ->
     case application:ensure_all_started(vault) of
-        {ok, _Apps} -> ok;
-        {error, _} -> ok
-    end,
-    Config.
+        {ok, _} -> Config;
+        {error, _} -> {skip, "vault application failed to start"}
+    end.
 
 end_per_suite(_Config) -> ok.
 
@@ -56,29 +39,44 @@ end_per_testcase(_TestCase, _Config) -> ok.
 %% Test Cases
 %% ===================================================================
 
-test_module_exists(_Config) ->
-    case code:ensure_loaded(vault_shards) of
-        {module, vault_shards} ->
-            ct:print("✓ vault_shards module loaded successfully");
-        Error ->
-            ct:fail({module_load_failed, Error})
-    end.
+test_store_and_get_roundtrip(_Config) ->
+    VaultId = <<"vault_shards_1">>,
+    ShardId = <<"shard_1">>,
+    Blob = <<"encrypted_data_abc">>,
+    {ok, _} = vault_shards:store_shard(VaultId, ShardId, #{<<"data">> => Blob}),
+    {ok, Doc} = vault_shards:get_shard(VaultId, ShardId),
+    #{<<"data">> := Blob} = vault_db:ejson_to_map(Doc),
+    ok.
 
-test_module_exports(_Config) ->
-    ExpectedExports = [
-        {store_shard, 3},
-        {get_shard, 2},
-        {get_all_shards_for_vault, 1},
-        {delete_shard, 2}
-    ],
-    {file, _} = code:is_loaded(vault_shards),
-    Exports = [
-        {Name, Arity}
-     || {Name, Arity} <- vault_shards:module_info(exports),
-        Name =/= module_info
-    ],
-    MissingExports = [F || F <- ExpectedExports, not lists:member(F, Exports)],
-    case MissingExports of
-        [] -> ct:print("✓ All expected functions exported: ~p", [ExpectedExports]);
-        _ -> ct:fail({missing_exports, MissingExports})
-    end.
+test_get_nonexistent_returns_not_found(_Config) ->
+    {error, not_found} = vault_shards:get_shard(<<"no_vault">>, <<"no_shard">>),
+    ok.
+
+test_get_all_shards_for_vault(_Config) ->
+    VaultId = <<"vault_shards_all_3">>,
+    {ok, _} = vault_shards:store_shard(VaultId, <<"s1">>, #{<<"data">> => <<"d1">>}),
+    {ok, _} = vault_shards:store_shard(VaultId, <<"s2">>, #{<<"data">> => <<"d2">>}),
+    {ok, _} = vault_shards:store_shard(VaultId, <<"s3">>, #{<<"data">> => <<"d3">>}),
+    {ok, Docs} = vault_shards:get_all_shards_for_vault(VaultId),
+    3 = length(Docs),
+    ok.
+
+test_delete_shard(_Config) ->
+    VaultId = <<"vault_shards_del_4">>,
+    ShardId = <<"shard_del">>,
+    {ok, _} = vault_shards:store_shard(VaultId, ShardId, #{<<"data">> => <<"temp">>}),
+    ok = vault_shards:delete_shard(VaultId, ShardId),
+    {error, not_found} = vault_shards:get_shard(VaultId, ShardId),
+    ok.
+
+test_integrity_hash_stored(_Config) ->
+    VaultId = <<"vault_shards_hash_5">>,
+    ShardId = <<"shard_hash">>,
+    Blob = <<"verify_hash_data">>,
+    {ok, _} = vault_shards:store_shard(VaultId, ShardId, #{<<"data">> => Blob}),
+    DocId = <<"shard:", VaultId/binary, ":", ShardId/binary>>,
+    {ok, Doc} = vault_db:get_doc(DocId),
+    #{<<"hash">> := Hash} = vault_db:ejson_to_map(Doc),
+    true = is_binary(Hash),
+    true = byte_size(Hash) =:= 64,
+    ok.
